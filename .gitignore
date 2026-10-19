@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+.pytest_cache/
+.openai/site-source-archive.tar.gz
+flowmesh-*.png
+.playwright-cli/
+!dist/
+!dist/**
