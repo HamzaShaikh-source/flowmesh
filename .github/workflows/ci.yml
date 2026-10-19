@@ -1,0 +1,29 @@
+name: Windows app
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-and-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install desktop dependencies
+        run: python -m pip --isolated install -r requirements-desktop.txt
+      - name: Test runtime
+        run: python -m unittest discover -s tests -v
+      - name: Check browser code
+        run: node --check dist/app.js
+      - name: Package Windows app
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FlowMesh --distpath release --workpath build --add-data "dist;dist" --collect-all keyring desktop.py
+          Compress-Archive -LiteralPath release\FlowMesh -DestinationPath release\FlowMesh-Windows.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: FlowMesh-Windows
+          path: release/FlowMesh-Windows.zip

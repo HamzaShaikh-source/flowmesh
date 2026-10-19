@@ -18,7 +18,7 @@ FIELDS = {
     "phone_service": "FLOWMESH_PHONE_NOTIFY_SERVICE",
 }
 DEFAULTS = {
-    "board_url": "https://github.com/issues",
+    "board_url": "https://github.com/HamzaShaikh-source/flowmesh/issues",
     "docs_url": "https://docs.python.org/3/",
     "ha_url": "",
     "light_entity": "",

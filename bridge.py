@@ -1,15 +1,14 @@
-"""Local FlowMesh bridge. Run with `python bridge.py` on the owner's PC.
-
-The browser UI is also a complete simulator when this bridge is absent. This
-server binds to loopback and exposes only the explicitly listed actions.
-"""
+"""Local FlowMesh runtime. Plans and approvals are owned by this process."""
 
 from __future__ import annotations
 
 import json
 import os
+import secrets
 import subprocess
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
@@ -19,13 +18,14 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from flowmesh_config import public_settings, save, secret, settings
+from planner import FORBIDDEN, WORKFLOWS, actions_for, local_route
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 DIST = ROOT / "dist"
 PORT = int(os.environ.get("FLOWMESH_PORT", "8765"))
 
 ALLOWED_URLS = {
-    "project_board": os.environ.get("FLOWMESH_BOARD_URL", "https://github.com/issues"),
+    "project_board": os.environ.get("FLOWMESH_BOARD_URL", "https://github.com/HamzaShaikh-source/flowmesh/issues"),
     "documentation": os.environ.get("FLOWMESH_DOCS_URL", "https://docs.python.org/3/"),
 }
 ALLOWED_APPS = {
@@ -33,6 +33,12 @@ ALLOWED_APPS = {
     "calculator": "calc.exe",
 }
 EVENTS: list[dict] = []
+PLANS: dict[str, dict] = {}
+PLAN_LOCK = threading.Lock()
+PLAN_LIFETIME = 300
+TIMER_LOCK = threading.Lock()
+ACTIVE_TIMER: threading.Timer | None = None
+TIMER_END: float | None = None
 
 
 def timestamp() -> str:
@@ -73,6 +79,75 @@ def jev_route(command: str, options: list[str]) -> dict:
         return {"route": route, "source": "jev", "confidence": confidence}
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return {"route": None, "source": "jev_unavailable", "error": type(exc).__name__}
+
+
+def prepare_plan(command: str) -> dict | None:
+    """Build and retain one short-lived plan for explicit later approval."""
+    if not isinstance(command, str) or not 1 <= len(command.strip()) <= 1000 or FORBIDDEN.search(command):
+        return None
+    command = command.strip()
+    decision = jev_route(command, list(WORKFLOWS))
+    if decision["source"] == "jev":
+        route = decision["route"]
+    else:
+        route = local_route(command)
+    if route not in WORKFLOWS:
+        return None
+    title, description = WORKFLOWS[route]
+    plan = {
+        "id": secrets.token_urlsafe(24),
+        "route": route,
+        "title": title,
+        "description": description,
+        "source": decision["source"],
+        "confidence": decision.get("confidence"),
+        "actions": actions_for(route, command),
+        "expires": time.monotonic() + PLAN_LIFETIME,
+    }
+    with PLAN_LOCK:
+        now = time.monotonic()
+        for key in [key for key, value in PLANS.items() if value["expires"] < now]:
+            del PLANS[key]
+        PLANS[plan["id"]] = plan
+    return {key: value for key, value in plan.items() if key != "expires"}
+
+
+def execute_plan(plan_id: str) -> list[dict] | None:
+    """Consume a plan once; the caller cannot substitute an action payload."""
+    with PLAN_LOCK:
+        plan = PLANS.pop(plan_id, None)
+    if plan is None or plan["expires"] < time.monotonic():
+        return None
+    results = []
+    for action in plan["actions"]:
+        try:
+            result = perform(action)
+        except OSError as exc:
+            result = {"status": "failed", "detail": type(exc).__name__}
+        event = {"at": timestamp(), "action": {k: v for k, v in action.items() if k in {"kind", "target", "value", "label", "surface"}}, **result}
+        EVENTS.append(event)
+        results.append(event)
+    return results
+
+
+def start_focus_timer(minutes: int) -> dict:
+    global ACTIVE_TIMER, TIMER_END
+
+    def complete() -> None:
+        global ACTIVE_TIMER, TIMER_END
+        with TIMER_LOCK:
+            ACTIVE_TIMER = None
+            TIMER_END = None
+        EVENTS.append({"at": timestamp(), "action": {"kind": "timer", "label": "Focus timer complete", "surface": "pc"}, "status": "verified", "detail": f"{minutes} minute focus block finished"})
+
+    with TIMER_LOCK:
+        if ACTIVE_TIMER is not None:
+            ACTIVE_TIMER.cancel()
+        TIMER_END = time.time() + minutes * 60
+        ACTIVE_TIMER = threading.Timer(minutes * 60, complete)
+        ACTIVE_TIMER.daemon = True
+        ACTIVE_TIMER.start()
+    return {"status": "verified", "detail": f"Timer scheduled for {minutes} minutes", "timer_end": TIMER_END}
 
 
 def home_assistant(service: str, domain: str, data: dict) -> dict:
@@ -128,7 +203,7 @@ def perform(action: dict) -> dict:
             return {"status": "denied", "detail": "Brightness must be 1–100"}
         entity = settings()["light_entity"]
         if not entity.startswith("light."):
-            return {"status": "not_configured", "detail": "Set FLOWMESH_LIGHT_ENTITY"}
+            return {"status": "not_configured", "detail": "Connect a Home Assistant light in settings"}
         result = home_assistant("turn_on", "light", {"entity_id": entity, "brightness_pct": brightness})
         if result["status"] != "sent":
             return result
@@ -140,7 +215,7 @@ def perform(action: dict) -> dict:
     if kind == "notify" and target == "my_phone":
         service = settings()["phone_service"]
         if not service.startswith("mobile_app_"):
-            return {"status": "not_configured", "detail": "Set FLOWMESH_PHONE_NOTIFY_SERVICE"}
+            return {"status": "not_configured", "detail": "Connect a Companion phone in settings"}
         message = action.get("message")
         if not isinstance(message, str) or not 1 <= len(message) <= 160:
             return {"status": "denied", "detail": "Notification text must be 1–160 characters"}
@@ -148,7 +223,7 @@ def perform(action: dict) -> dict:
     if kind == "timer" and target == "focus_timer":
         minutes = action.get("value")
         if isinstance(minutes, int) and 1 <= minutes <= 180:
-            return {"status": "verified", "detail": f"Timer created for {minutes} minutes in FlowMesh"}
+            return start_focus_timer(minutes)
     return {"status": "denied", "detail": "Action is not registered"}
 
 
@@ -187,10 +262,11 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/status":
             self.send_json({
-                "mode": "local_bridge",
+                "mode": "desktop_app",
                 "jev": bool(secret("jev_key")),
                 "home_assistant": bool(settings()["ha_url"] and secret("ha_token")),
                 "windows": os.name == "nt",
+                "timer_end": TIMER_END,
             })
             return
         if self.path == "/api/settings":
@@ -199,6 +275,8 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/events":
             self.send_json({"events": EVENTS[-100:]})
             return
+        if self.path == "/":
+            self.path = "/app.html"
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -210,6 +288,9 @@ class Handler(SimpleHTTPRequestHandler):
         if origin and origin not in {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}:
             self.send_json({"error": "Cross-origin requests are denied"}, 403)
             return
+        if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+            self.send_json({"error": "JSON content type required"}, 415)
+            return
         body = self.read_json()
         if body is None:
             self.send_json({"error": "Invalid JSON body"}, 400)
@@ -220,24 +301,31 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError, OSError, RuntimeError) as exc:
                 self.send_json({"error": str(exc)}, 400)
             return
-        if self.path == "/api/route":
+        if self.path == "/api/plan":
             command = body.get("command")
-            options = body.get("options")
-            allowed = {"focus", "meeting", "research", "reset"}
-            if not isinstance(command, str) or len(command) > 1000 or not isinstance(options, list) or not all(isinstance(option, str) and option in allowed for option in options):
-                self.send_json({"error": "Invalid routing request"}, 400)
-                return
-            self.send_json(jev_route(command, options))
+            plan = prepare_plan(command)
+            if plan is None:
+                self.send_json({"error": "Command is unsupported or needs clarification"}, 422)
+            else:
+                self.send_json(plan)
             return
         if self.path == "/api/execute":
-            action = body.get("action")
-            if not isinstance(action, dict):
-                self.send_json({"error": "Invalid action"}, 400)
+            plan_id = body.get("plan_id")
+            if not isinstance(plan_id, str) or len(plan_id) > 128:
+                self.send_json({"error": "Invalid plan"}, 400)
                 return
-            result = perform(action)
-            event = {"at": timestamp(), "action": {k: v for k, v in action.items() if k in {"kind", "target", "value"}}, **result}
-            EVENTS.append(event)
-            self.send_json(event)
+            results = execute_plan(plan_id)
+            if results is None:
+                self.send_json({"error": "Plan expired or already used"}, 409)
+            else:
+                self.send_json({"results": results})
+            return
+        if self.path == "/api/cancel":
+            plan_id = body.get("plan_id")
+            if isinstance(plan_id, str):
+                with PLAN_LOCK:
+                    PLANS.pop(plan_id, None)
+            self.send_json({"cancelled": True})
             return
         self.send_json({"error": "Not found"}, 404)
 

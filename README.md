@@ -1,94 +1,85 @@
-# FlowMesh — No Hands 2026
+# FlowMesh
 
-Public judge demo: https://flowmesh-nohands-2026.exactpearl18.chatgpt.site/
+FlowMesh is a Windows voice-workflow app for the [No Hands challenge](https://www.wemakedevs.org/wispr). [Download the latest Windows release](https://github.com/HamzaShaikh-source/flowmesh/releases/latest) or visit the [product page](https://flowmesh-nohands-2026.exactpearl18.chatgpt.site/). The product page does not simulate device actions.
 
-One spoken intention becomes an approved set of actions across a computer, phone, and desk lamp. The public link is a resettable judge simulator. The Windows desktop app runs the same interface with real allowlisted actions and local connection settings.
+Speak into the focused command box with **Wispr Flow** (a separate installed app), review an exact plan, then approve it. A local Windows runtime executes allowlisted actions and records honest receipts. Jev can select a registered workflow when a TypeSafe API key is configured. Home Assistant can send a Companion phone notification and set a light; missing devices are reported as `not_configured`, never as success.
 
-## Run the Windows app
+## Install
 
-Download or build the `FlowMesh` folder, then open `FlowMesh.exe`. The app starts its own loopback server on a free port and opens a native Windows window; it does not need the hosted site or a Python installation. Windows WebView2 Runtime is required (normally present on Windows 11). Wispr Flow itself remains a separate app: click the command box and dictate into it.
+1. Download `FlowMesh-Windows.zip` from [Releases](https://github.com/HamzaShaikh-source/flowmesh/releases/latest).
+2. Extract the whole `FlowMesh` folder. Run `FlowMesh.exe` inside it. Windows WebView2 Runtime is required; Windows 11 normally has it. The app is unsigned, so Windows may show a publisher warning.
+3. Click a sample routine or focus the command box and dictate with Wispr Flow. The Windows shortcut shown in the app is **Ctrl + Win**. You can also type.
+4. Review the plan, then select **Approve & run**. The plan is server-owned, expires after five minutes, and can execute only once.
 
-To build from source on Windows with Python 3.12+:
+The PC path works immediately: approved web URLs and Notepad/Calculator can launch. The app's runtime binds to `127.0.0.1` on a free port; it does not expose control to the LAN or the public website.
+
+## Connect Jev, phone, and light
+
+Open **Connect devices** inside the desktop app:
+
+| Field | Example | Result |
+| --- | --- | --- |
+| Project board URL | `https://github.com/HamzaShaikh-source/flowmesh/issues` | Browser destination for focus/meeting |
+| Documentation URL | `https://docs.python.org/3/` | Browser destination for research |
+| Jev API key | Your TypeSafe key | Jev Choice routing among three registered routines |
+| Home Assistant URL | `http://homeassistant.local:8123` | Your Home Assistant server |
+| Home Assistant token | Long-lived access token | Authenticates local device calls |
+| Light entity ID | `light.desk_lamp` | One allowlisted light |
+| Phone notify service | `mobile_app_my_phone` | Home Assistant Companion notification |
+
+API keys and the Home Assistant token are stored in Windows Credential Manager, not in the settings JSON or browser. Environment variables `TYPESAFE_API_KEY`, `FLOWMESH_HA_URL`, `FLOWMESH_HA_TOKEN`, `FLOWMESH_LIGHT_ENTITY`, `FLOWMESH_PHONE_NOTIFY_SERVICE`, `FLOWMESH_BOARD_URL`, and `FLOWMESH_DOCS_URL` also work for CLI runs. Do not add secrets to the repo or hosted site.
+
+Install the official [Home Assistant Companion app](https://companion.home-assistant.io/) on your phone and grant notifications. Home Assistant exposes its service as `notify.mobile_app_<device_id>`; enter the part after `notify.` in FlowMesh. Connect a light to Home Assistant and use its exact `light.*` entity ID. FlowMesh uses the [REST API](https://developers.home-assistant.io/docs/api/rest/) to send service calls and read back light state.
+
+## What is real—and what is not
+
+- Windows: browser open and app launch requests are real, but labeled `sent` because the runtime cannot prove the target became usable.
+- Timer: scheduled by the app process and shown as a live countdown. It ends if the app process exits.
+- Phone: a real Home Assistant Companion notification request, labeled `sent` when Home Assistant accepts it. Delivery to a phone is not independently verified. This is **not** arbitrary control of mobile apps.
+- Light: a real Home Assistant service call; labeled `verified` only when the returned entity state matches the requested brightness.
+- Jev: a real TypeSafe API request when keyed. It chooses only among `focus`, `meeting`, `research`, and `none`; it never generates shell commands or unregistered device actions. Without a key, clearly labeled local rules route the three routines.
+- Unsupported/sensitive commands are denied. Other appliances require a deliberately registered adapter; the app does not claim universal device control.
+
+This repository does not bundle or reimplement Wispr Flow. A real Wispr session, Jev key, and Home Assistant devices are required to demonstrate those live integrations. Automated tests use controlled responses; they are not presented as live-device proof.
+
+## Build from source
+
+On Windows with Python 3.12+:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\python.exe -m pip --isolated install -r requirements-desktop.txt
-.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onedir --windowed --name FlowMesh --distpath release --workpath build --add-data "dist;dist" --collect-all keyring desktop.py
+.venv\Scripts\python.exe desktop.py
 ```
 
-Keep the whole `release/FlowMesh` folder together. Run `release/FlowMesh/FlowMesh.exe`. The binary is not code-signed, so Windows may display a publisher warning.
-
-## Run locally
-
-Python 3.12+ is the only required runtime. From this directory:
+To package the onedir app:
 
 ```powershell
-python bridge.py
+.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onedir --windowed --name FlowMesh --distpath release --workpath build --add-data "dist;dist" --collect-all keyring desktop.py
+Compress-Archive -LiteralPath release\FlowMesh -DestinationPath release\FlowMesh-Windows.zip
 ```
 
-Open [http://127.0.0.1:8765](http://127.0.0.1:8765). The bridge binds to your own computer only. No account or API key is needed for the interactive demo.
+For a local HTTP-only debug run, use `.venv\Scripts\python.exe desktop.py --headless --port 8766`, then open `http://127.0.0.1:8766/`.
 
-Focus the command box, hold **Ctrl + Win** and dictate with Wispr Flow on Windows, then release to insert the transcript. You can also type or select one of the sample commands. Wispr Flow is a separate app that you install and sign in to; FlowMesh receives the text it inserts into the focused field.
-
-## Enable Jev routing
-
-In the desktop app, open **Connect devices** and paste a TypeSafe API key. Alternatively, set `TYPESAFE_API_KEY` before launch. Jev uses a typed Choice to select `focus`, `meeting`, `research`, or `none`. The app only accepts a registered choice with confidence at least 0.65. If Jev is unavailable, local rules handle the three sample workflows and the UI labels the routing source. Jev does not execute device actions or invent unrestricted commands.
-
-## Enable the real devices
-
-Fill the desktop app's **Connect devices** form. The equivalent environment variables remain available for CLI use:
-
-| Variable | Purpose |
-| --- | --- |
-| `FLOWMESH_BOARD_URL` | Approved project board URL; defaults to GitHub Issues |
-| `FLOWMESH_DOCS_URL` | Approved documentation URL; defaults to Python docs |
-| `FLOWMESH_HA_URL` | Home Assistant origin, for example `http://192.168.1.10:8123` |
-| `FLOWMESH_HA_TOKEN` | Home Assistant long-lived access token |
-| `FLOWMESH_LIGHT_ENTITY` | An entity such as `light.desk_lamp` |
-| `FLOWMESH_PHONE_NOTIFY_SERVICE` | Companion notify service such as `mobile_app_my_phone` |
-
-The desktop app stores Jev and Home Assistant secrets in Windows Credential Manager; the browser receives only connection flags. Environment-provided secrets remain in the environment. For phone actions, install the official Home Assistant Companion app, register the phone, and use its `notify.mobile_app_*` service name. Leave fields unset to receive an honest `not_configured` receipt. Do not put secrets in the hosted static demo.
-
-## How to use
-
-1. Speak into the command box using Wispr Flow or select **Deep focus**.
-2. Select **Create action plan**. Review the exact action list.
-3. Select **Approve & run**. Watch the computer, phone, and space panels update.
-4. Inspect the receipt list. It distinguishes simulated verification, device verification, action requests, failures, and unconfigured integrations.
-5. Select **Reset demo** for the next judge.
-
-Try an unsafe or unsupported command such as “unlock the door.” FlowMesh declines to prepare any action.
-
-## Architecture
+## Architecture and verification
 
 ```text
-Wispr Flow dictation → command box → Jev Choice (optional) or local route
-→ registered action plan → explicit approval → local adapters → receipts
+Wispr Flow dictation → desktop UI → POST /api/plan
+→ Jev Choice or labeled local route → server-owned, expiring plan
+→ explicit approval → POST /api/execute with one-use plan ID
+→ allowlisted Windows / Home Assistant adapters → per-action receipts
 ```
 
-The static `dist/` folder is the no-login judge experience. `desktop.py` wraps the same UI in a Windows WebView2 window; `bridge.py` provides the local action API. Only registered app names, browser destinations, and device targets are accepted. The bridge binds to loopback and rejects cross-origin requests. The Windows app is packaged with [pywebview](https://pywebview.flowrl.com/guide/usage.html) (BSD-3-Clause), [keyring](https://github.com/jaraco/keyring) (MIT), and [PyInstaller](https://pyinstaller.org/) (GPL-2.0-or-later with a special exception for distributing bundled apps); those are dependencies, not copied source.
+The `dist/index.html` file is the public download page; `dist/app.html` is served only by the desktop runtime. The browser cannot submit a raw action to `/api/execute`. The server checks Host, Origin, JSON content type, plan ID, and target allowlists.
 
-## Scope and limits
-
-- Windows apps: Notepad and Calculator.
-- Browser: two approved URLs.
-- Phone: Home Assistant Companion notification. The site is responsive on phones, but there is no native phone controller or arbitrary phone-app control.
-- Appliance: one allowlisted Home Assistant light, or the public simulator. Other Home Assistant appliances are future adapters, not silently granted access.
-- The bridge can verify the light state after setting it. Browser opening, app launching, and notification delivery are reported as sent requests, because success cannot be established from the service call alone.
-- The hosted demo does not call Jev or control the visitor's devices. Its simulator is labeled as such.
-
-## Hackathon submission
-
-Track: **Builders**. Supply the deployed `dist/` link, a demo video of at most two minutes, your Wispr Flow Insights usage-card screenshot, and a short statement about the problem, user, voice-built workflow, and one measured real result. The usage card and real-result claim require your own Wispr session and use of the product; they are not fabricated by this repository.
-
-Suggested result to capture: perform the same focus setup manually and through FlowMesh, record elapsed times, and include the exact number of actions verified or sent.
-
-## Verification
+Run the real project checks:
 
 ```powershell
-python -m unittest discover -s tests -v
+.venv\Scripts\python.exe -m unittest discover -s tests -v
 node --check dist/app.js
-python desktop.py --headless --port 8766
+git diff --check
 ```
 
-Sources that informed the implementation: [challenge rules](https://www.wemakedevs.org/wispr), [Wispr Flow dictation](https://docs.wisprflow.ai/articles/6409258247-starting-your-first-dictation), [TypeSafe Python SDK](https://github.com/typesafe-ai/typesafe-sdk-python), [Jev Ultrafast](https://github.com/browser-use/jev-ultrafast), [Jev Computer Use](https://github.com/JASGENIUS/jev-computer-use), and [Home Assistant REST API](https://developers.home-assistant.io/docs/api/rest/). No external source code is copied into this repository.
+The implementation uses [pywebview](https://pywebview.flowrl.com/guide/usage.html), [keyring](https://github.com/jaraco/keyring), and [PyInstaller](https://pyinstaller.org/). Architecture was informed by [Jev Computer Use](https://github.com/JASGENIUS/jev-computer-use) and [TypeSafe's Choice API](https://docs.typesafe.ai/primitives/choice). No source from those inspiration repositories was copied into this project.
+
+See [SUBMISSION.md](SUBMISSION.md) for the human-owned Wispr usage card, live-device evidence, and two-minute video checklist.
