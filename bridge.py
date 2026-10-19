@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 import webbrowser
@@ -17,7 +18,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-ROOT = Path(__file__).resolve().parent
+from flowmesh_config import public_settings, save, secret, settings
+
+ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 DIST = ROOT / "dist"
 PORT = int(os.environ.get("FLOWMESH_PORT", "8765"))
 
@@ -38,7 +41,7 @@ def timestamp() -> str:
 
 def jev_route(command: str, options: list[str]) -> dict:
     """Ask TypeSafe Jev to select a registered workflow, if configured."""
-    key = os.environ.get("TYPESAFE_API_KEY")
+    key = secret("jev_key")
     if not key:
         return {"route": None, "source": "local", "confidence": None}
     choices = {name: f"Run the {name.replace('_', ' ')} workflow" for name in options}
@@ -73,8 +76,8 @@ def jev_route(command: str, options: list[str]) -> dict:
 
 
 def home_assistant(service: str, domain: str, data: dict) -> dict:
-    base = os.environ.get("FLOWMESH_HA_URL", "").rstrip("/")
-    token = os.environ.get("FLOWMESH_HA_TOKEN", "")
+    base = settings()["ha_url"].rstrip("/")
+    token = secret("ha_token")
     if not base or not token:
         return {"status": "not_configured", "detail": "Home Assistant is not configured"}
     request = urllib.request.Request(
@@ -92,8 +95,8 @@ def home_assistant(service: str, domain: str, data: dict) -> dict:
 
 
 def home_state(entity: str) -> dict | None:
-    base = os.environ.get("FLOWMESH_HA_URL", "").rstrip("/")
-    token = os.environ.get("FLOWMESH_HA_TOKEN", "")
+    base = settings()["ha_url"].rstrip("/")
+    token = secret("ha_token")
     request = urllib.request.Request(
         f"{base}/api/states/{entity}",
         headers={"Authorization": f"Bearer {token}"},
@@ -110,9 +113,11 @@ def perform(action: dict) -> dict:
     kind = action.get("kind")
     target = action.get("target")
     if kind == "open_url" and target in ALLOWED_URLS:
-        if urlparse(ALLOWED_URLS[target]).scheme not in {"http", "https"}:
+        config = settings()
+        url = config["board_url" if target == "project_board" else "docs_url"]
+        if urlparse(url).scheme not in {"http", "https"}:
             return {"status": "denied", "detail": "Only HTTP(S) destinations are allowed"}
-        opened = webbrowser.open(ALLOWED_URLS[target], new=2)
+        opened = webbrowser.open(url, new=2)
         return {"status": "sent" if opened else "unknown", "detail": "Browser open requested"}
     if kind == "launch_app" and target in ALLOWED_APPS and os.name == "nt":
         subprocess.Popen([ALLOWED_APPS[target]], shell=False)
@@ -121,7 +126,7 @@ def perform(action: dict) -> dict:
         brightness = action.get("value")
         if not isinstance(brightness, int) or not 1 <= brightness <= 100:
             return {"status": "denied", "detail": "Brightness must be 1–100"}
-        entity = os.environ.get("FLOWMESH_LIGHT_ENTITY", "")
+        entity = settings()["light_entity"]
         if not entity.startswith("light."):
             return {"status": "not_configured", "detail": "Set FLOWMESH_LIGHT_ENTITY"}
         result = home_assistant("turn_on", "light", {"entity_id": entity, "brightness_pct": brightness})
@@ -133,7 +138,7 @@ def perform(action: dict) -> dict:
             return {"status": "verified", "detail": f"Home Assistant read back {brightness}% brightness"}
         return {"status": "unknown", "detail": "Command sent; device state could not be verified"}
     if kind == "notify" and target == "my_phone":
-        service = os.environ.get("FLOWMESH_PHONE_NOTIFY_SERVICE", "")
+        service = settings()["phone_service"]
         if not service.startswith("mobile_app_"):
             return {"status": "not_configured", "detail": "Set FLOWMESH_PHONE_NOTIFY_SERVICE"}
         message = action.get("message")
@@ -151,12 +156,18 @@ class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(DIST), **kwargs)
 
+    def log_message(self, format: str, *args: object) -> None:
+        # PyInstaller windowed builds have no stderr stream.
+        if sys.stderr is not None:
+            super().log_message(format, *args)
+
     def send_json(self, payload: dict, status: int = 200) -> None:
         data = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(data)
 
@@ -171,13 +182,19 @@ class Handler(SimpleHTTPRequestHandler):
             return None
 
     def do_GET(self) -> None:
+        if not self.trusted_host():
+            self.send_json({"error": "Invalid host"}, 403)
+            return
         if self.path == "/api/status":
             self.send_json({
                 "mode": "local_bridge",
-                "jev": bool(os.environ.get("TYPESAFE_API_KEY")),
-                "home_assistant": bool(os.environ.get("FLOWMESH_HA_URL") and os.environ.get("FLOWMESH_HA_TOKEN")),
+                "jev": bool(secret("jev_key")),
+                "home_assistant": bool(settings()["ha_url"] and secret("ha_token")),
                 "windows": os.name == "nt",
             })
+            return
+        if self.path == "/api/settings":
+            self.send_json(public_settings())
             return
         if self.path == "/api/events":
             self.send_json({"events": EVENTS[-100:]})
@@ -185,13 +202,23 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:
+        if not self.trusted_host():
+            self.send_json({"error": "Invalid host"}, 403)
+            return
         origin = self.headers.get("Origin")
-        if origin and origin != f"http://127.0.0.1:{PORT}" and origin != f"http://localhost:{PORT}":
+        port = self.server.server_port
+        if origin and origin not in {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}:
             self.send_json({"error": "Cross-origin requests are denied"}, 403)
             return
         body = self.read_json()
         if body is None:
             self.send_json({"error": "Invalid JSON body"}, 400)
+            return
+        if self.path == "/api/settings":
+            try:
+                self.send_json(save(body))
+            except (ValueError, OSError, RuntimeError) as exc:
+                self.send_json({"error": str(exc)}, 400)
             return
         if self.path == "/api/route":
             command = body.get("command")
@@ -213,6 +240,10 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(event)
             return
         self.send_json({"error": "Not found"}, 404)
+
+    def trusted_host(self) -> bool:
+        host = self.headers.get("Host", "")
+        return host in {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
 
 
 if __name__ == "__main__":

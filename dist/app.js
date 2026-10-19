@@ -86,15 +86,49 @@ function startTimer(minutes) {
   tick(); state.timerId = setInterval(tick, 1000);
 }
 async function detectBridge() {
-  if (!['127.0.0.1', 'localhost'].includes(location.hostname) || location.port !== '8765') return;
+  if (!['127.0.0.1', 'localhost'].includes(location.hostname)) return;
   try {
     const response = await fetch('/api/status', { signal: AbortSignal.timeout(1300) });
     if (!response.ok) return;
     const data = await response.json();
     if (data.mode !== 'local_bridge') return;
     state.bridge = true; state.jev = data.jev;
-    $('connectionBadge').innerHTML = '<span class="status-dot"></span> Local bridge';
+    $('connectionBadge').innerHTML = '<span class="status-dot"></span> Desktop app';
+    $('settingsSection').hidden = false;
+    $('settingsShortcut').hidden = false;
+    await loadSettings();
   } catch { /* Hosted version runs as a self-contained simulator. */ }
+}
+async function loadSettings() {
+  const response = await fetch('/api/settings');
+  if (!response.ok) return;
+  const data = await response.json();
+  for (const name of ['board_url', 'docs_url', 'ha_url', 'light_entity', 'phone_service']) {
+    $('settingsForm').elements.namedItem(name).value = data[name] || '';
+  }
+  $('jevKeyState').textContent = data.jev_connected ? 'Connected' : 'Not connected';
+  $('haTokenState').textContent = data.ha_token_connected ? 'Connected' : 'Not connected';
+  state.jev = data.jev_connected;
+}
+async function saveSettings(event) {
+  event.preventDefault();
+  const form = $('settingsForm');
+  const payload = {};
+  for (const name of ['board_url', 'docs_url', 'ha_url', 'light_entity', 'phone_service']) payload[name] = form.elements.namedItem(name).value.trim();
+  for (const name of ['jev_key', 'ha_token']) {
+    const value = form.elements.namedItem(name).value.trim();
+    if (value) payload[name] = value;
+  }
+  $('settingsMessage').textContent = 'Saving…';
+  try {
+    const response = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const result = await response.json();
+    if (!response.ok) throw Error(result.error || 'Could not save settings');
+    form.elements.namedItem('jev_key').value = '';
+    form.elements.namedItem('ha_token').value = '';
+    $('settingsMessage').textContent = 'Connections saved on this PC.';
+    await loadSettings();
+  } catch (error) { $('settingsMessage').textContent = error.message; }
 }
 async function routeCommand(command) {
   if (containsForbiddenAction(command)) return null;
@@ -184,4 +218,5 @@ $('approveButton').addEventListener('click', runPlan);
 $('cancelButton').addEventListener('click', () => { state.plan = null; $('planSection').hidden = true; addEvent('Plan cancelled', 'No actions were run', 'denied'); });
 $('resetButton').addEventListener('click', resetDemo);
 $('commandInput').addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) planCommand(); });
+$('settingsForm').addEventListener('submit', saveSettings);
 detectBridge();

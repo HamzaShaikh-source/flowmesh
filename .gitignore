@@ -6,5 +6,8 @@ __pycache__/
 .openai/site-source-archive.tar.gz
 flowmesh-*.png
 .playwright-cli/
+build/
+release/
+*.spec
 !dist/
 !dist/**
