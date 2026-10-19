@@ -40,7 +40,7 @@ Do not report simulated actions as physical actions or invent a time-saved claim
 
 ## Final submission fields
 
-- Working project link: add the public deployment URL.
+- Working project link: https://flowmesh-nohands-2026.exactpearl18.chatgpt.site/
 - Demo video: add your video link, at most two minutes.
 - Wispr usage card: upload your real Insights screenshot.
 - Short explanation: use the problem and user text above, updated with your own experience and measured result.

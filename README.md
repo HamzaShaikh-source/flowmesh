@@ -1,5 +1,7 @@
 # FlowMesh — No Hands 2026
 
+Public judge demo: https://flowmesh-nohands-2026.exactpearl18.chatgpt.site/
+
 One spoken intention becomes an approved set of actions across a computer, phone, and desk lamp. The public app is a fully working, resettable simulator. On Windows, the local bridge can launch allowlisted apps and URLs, send a Home Assistant Companion notification, and set a Home Assistant light with state readback.
 
 ## Run locally
