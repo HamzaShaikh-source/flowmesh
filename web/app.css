@@ -468,3 +468,13 @@ kbd {
 .receipt-legend .mono[data-s="not_configured"] { color: var(--muted); }
 #planPanel.consumed .actions { opacity: .62; }
 #planPanel.consumed #approveButton { opacity: .55; }
+
+.plan-also {
+  margin: -0.35rem 0 0.85rem;
+  padding: 0.45rem 0.7rem;
+  border-left: 2px solid var(--warn, #d8a657);
+  background: color-mix(in srgb, var(--warn, #d8a657) 8%, transparent);
+  color: var(--muted-foreground, #9aa4a0);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}

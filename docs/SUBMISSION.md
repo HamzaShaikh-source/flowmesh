@@ -26,7 +26,7 @@ This file separates three things that are easy to blur: what the code proves, wh
 
 ## 3. What is verified by engineering (do not overstate beyond this)
 
-- `python -m unittest discover -s tests -v` → **49 tests, OK** (planner, HTTP contract, security boundaries, adapters, artifacts, Python↔JS parity). Exact dated run in [VERIFICATION.md](VERIFICATION.md).
+- `python -m unittest discover -s tests -v` → **54 tests, OK** (planner, HTTP contract, security boundaries, adapters, artifacts, Python↔JS parity). Exact dated run in [VERIFICATION.md](VERIFICATION.md).
 - Planner parity: the browser planner produces byte-identical plans to the Python planner for every fixture, enforced by `tests/test_parity.py`.
 - Replay of a spent plan → `409`; cross-origin `POST` → `403`; malformed JSON → `400`; client-composed actions → `400`; destructive command → `422`.
 - Run records written atomically with byte count + SHA-256; hash re-checked from disk in tests.

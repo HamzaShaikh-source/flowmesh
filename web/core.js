@@ -23,6 +23,8 @@
   const MINUTES = /\b(\d{1,3})[\s-]*(?:minutes?|mins?)\b/i;
   const PERCENT = /\b(\d{1,3})\s*(?:%|percent\b)/i;
 
+  const INTENT_PATTERNS = [['meeting', MEETING], ['research', RESEARCH], ['focus', FOCUS]];
+
   function commandIsUsable(command) {
     return typeof command === 'string' && command.trim().length >= 1 && command.trim().length <= MAX_COMMAND;
   }
@@ -88,6 +90,12 @@
     return actions;
   }
 
+  function otherIntents(route, command) {
+    let text = command.trim();
+    if (CAPTURE_PREFIX.test(text)) text = text.replace(CAPTURE_PREFIX, '') || text;
+    return INTENT_PATTERNS.filter(([name, pattern]) => name !== route && pattern.test(text)).map(([name]) => WORKFLOWS[name][0]);
+  }
+
   function planPayload(route, command, source, confidence) {
     const entry = WORKFLOWS[route];
     return {
@@ -96,9 +104,10 @@
       description: entry[1],
       source: source || 'local',
       confidence: confidence === undefined ? null : confidence,
+      also: otherIntents(route, command),
       actions: actionsFor(route, command),
     };
   }
 
-  return { WORKFLOWS, DEFAULTS, BRIGHTNESS, MAX_COMMAND, commandIsUsable, isForbidden, localRoute, actionsFor, planPayload };
+  return { WORKFLOWS, DEFAULTS, BRIGHTNESS, MAX_COMMAND, commandIsUsable, isForbidden, localRoute, actionsFor, otherIntents, planPayload };
 });

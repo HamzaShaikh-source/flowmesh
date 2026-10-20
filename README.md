@@ -42,6 +42,8 @@ Anything else is refused, out loud, with a reason — including "delete my files
 
 The browser edition is not a simulation: the plan is real, the timer is real, the tab really opens, the record is really generated and downloaded. It cannot touch your filesystem, Notepad, Home Assistant or your phone — and it says so on every such row instead of faking a success.
 
+If one dictated sentence holds two jobs — *"capture the release link, and start a 20 minute research sprint"* — the plan says so out loud: **"Also heard in this sentence: Research sprint. Not part of this plan — dictate that as its own command."** Nothing is silently dropped, and nothing is silently added.
+
 ## Two runtimes, one source
 
 `web/` is the only UI. `web/core.js` is a line-for-line port of `planner.py`, and `tests/test_parity.py` fails CI if the two ever disagree.
@@ -101,7 +103,7 @@ Full detail: [docs/SECURITY.md](docs/SECURITY.md).
 ## Tests and what has actually been run
 
 ```bash
-python -m unittest discover -s tests -v   # 49 tests: planner, HTTP contract, adapters, artifacts, parity
+python -m unittest discover -s tests -v   # 54 tests: planner, HTTP contract, adapters, artifacts, parity
 node --check web/core.js && node --check web/ui.js
 ```
 

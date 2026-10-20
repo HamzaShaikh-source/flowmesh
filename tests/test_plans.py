@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import bridge
+import planner
 from planner import actions_for, local_route
 
 
@@ -71,3 +72,23 @@ class PlanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SecondIntentTests(unittest.TestCase):
+    """A dictated sentence can hold two jobs. The plan must admit it covers one."""
+
+    def test_capture_admits_the_timer_it_is_not_running(self):
+        command = "Capture the release link. Start a 20 minute research sprint."
+        self.assertEqual(planner.local_route(command), "capture")
+        self.assertIn("Research sprint", planner.other_intents("capture", command))
+
+    def test_single_intent_claims_nothing_extra(self):
+        self.assertEqual(planner.other_intents("meeting", "The pricing call with Rohan just ended."), [])
+
+    def test_focus_mentions_the_research_it_is_ignoring(self):
+        command = "Start a 45 minute focus block and read the docs after."
+        self.assertIn("Research sprint", planner.other_intents("focus", command))
+
+    def test_plan_payload_carries_the_second_intent(self):
+        payload = planner.plan_payload("capture", "Capture: send the demo video, and start a 30 minute focus block.")
+        self.assertIn("Deep focus", payload["also"])

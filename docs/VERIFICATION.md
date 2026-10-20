@@ -6,7 +6,7 @@ Every line here was produced on the author's Windows machine on **20 October 202
 
 ```
 $ python -m unittest discover -s tests -v
-Ran 49 tests in 10.435s
+Ran 54 tests in 9.394s
 OK
 
 $ node --check web/core.js && node --check web/ui.js
@@ -31,6 +31,19 @@ Verified in `http://127.0.0.1:8774/` served as a plain static directory (no `/ap
 
 Screenshots: `shots/01-console-1440.png`, `shots/02-plan.png`, `shots/03-receipts.png`, `shots/05-browser-edition.png`.
 
+### The deployed site, same checks against the public URL
+
+`https://flowmesh-nohands.netlify.app/` — fresh Chromium context, no cache, no account:
+
+- `runtimeBadge` → `Browser edition · live`;
+- `Capture the release link. Start a 20 minute research sprint.` → plan `Quick capture`,
+  second-intent line rendered: *"Also heard in this sentence: Research sprint. Not part of this plan — dictate that as its own command."*;
+- `Expires in 04:56 · single use`;
+- `Approve & run` → `01 · Save the note · Record generated in this page · flowmesh-20261020-221620-capture.md · VERIFIED`;
+- screenshot `shots/07-live-browser-edition.png`.
+
+Byte comparison against the deployed files (`sha256sum` of local vs. served): `app.css`, `core.js` and `ui.js` are identical. `index.html` differs only by the two blocks Netlify injects at serve time (its own comment block and `/.netlify/scripts/hud` script); the document FlowMesh ships is otherwise the same file CI checks and PyInstaller packages.
+
 ## Desktop edition — local runtime on 127.0.0.1
 
 Verified against `desktop.py --headless` with a real token in the URL:
@@ -53,8 +66,15 @@ Build complete! The results are available in: D:\projects\flowmesh-handsfree
 elease
 
 $ sha256sum FlowMesh-Windows.zip
-30E15A268BFFDDDC727CC72856EC500AB2BC770C07507F57F647412E75DC38E1
-12.97 MB (12,971,876 bytes)
+F1C1764CC7AA22B2ABD927786417F43ED601DD19011BB2D8FEAB0D9EF23AC470
+12.97 MB (12,972,538 bytes)
+```
+
+Published digest, read back from the GitHub API after upload (must match the local file):
+
+```
+$ gh release view v1.1.0 --json assets --jq '.assets[] | "\(.name) \(.size) \(.digest)"'
+FlowMesh-Windows.zip 12972538 sha256:f1c1764cc7aa22b2abd927786417f43ed601dd19011bb2d8feab0d9ef23ac470
 ```
 
 Exercised on the **binary**, not the source tree:
@@ -66,6 +86,8 @@ Exercised on the **binary**, not the source tree:
   `not_configured` ×2 (phone, lamp), `verified` (record written, 1,474 bytes + SHA-256);
 - replay → `409`; foreign `Origin` → `403`; `delete my files` → `422`; amended payload (`plan_id` + `actions`) → `400`; malformed JSON → `400`;
 - unauthenticated `GET /api/status` → `401`;
+- second intent in one dictated sentence is disclosed, not dropped: `POST /api/plan {"command":"Capture the release link. Start a 20 minute research sprint."}` → `route: capture`, `also: ["Research sprint"]`, exactly one action;
+- that plan executed once (`write_note` → `verified`), replay → `409`, amended payload (`plan_id` + `actions`) → `400`;
 - ZIP extracted to a clean temp directory → `FlowMesh.exe` runs there, serves the UI (`200`), writes `launch-url.txt` (0600) and completes the same five-receipt run.
 
 `launch-url.txt` lives at `%APPDATA%\FlowMesh\launch-url.txt`; it carries the per-launch token, is user-only, and is overwritten on every launch.
@@ -83,4 +105,4 @@ Exercised on the **binary**, not the source tree:
 
 ## Prior claims re-checked
 
-The v1.0 notes claimed 19 tests. That number is superseded: the suite is now **49 tests**, all passing. The v1.0 release ZIP hash `43AEDFF2…819B5FBF` described the previous build and does **not** describe v1.1.0; the v1.1.0 hash is published in the release notes and below.
+The v1.0 notes claimed 19 tests. That number is superseded: the suite is now **54 tests**, all passing. The v1.0 release ZIP hash `43AEDFF2…819B5FBF` described the previous build and does **not** describe v1.1.0; the v1.1.0 hash is published in the release notes and below.

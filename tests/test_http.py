@@ -210,3 +210,18 @@ class LifecycleTests(BridgeTestCase):
     def test_unknown_api_path_is_404(self):
         status, _, _ = self.call("GET", "/api/nope")
         self.assertEqual(status, 404)
+
+
+class SecondIntentHttpTests(BridgeTestCase):
+    def test_plan_reports_a_second_intent_it_will_not_run(self):
+        status, _, raw = self.call(
+            "POST",
+            "/api/plan",
+            {"command": "Capture the release link. Start a 20 minute research sprint."},
+        )
+        self.assertEqual(status, 200)
+        plan = self.json_of(raw)
+        self.assertEqual(plan["route"], "capture")
+        self.assertEqual(plan["also"], ["Research sprint"])
+        self.assertEqual(len(plan["actions"]), 1)
+        self.assertEqual(plan["actions"][0]["kind"], "write_note")

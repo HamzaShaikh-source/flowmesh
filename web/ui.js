@@ -245,6 +245,7 @@
       description: payload.description,
       source: payload.source,
       confidence: null,
+      also: payload.also,
       actions: payload.actions,
       expires_at: Date.now() / 1000 + 300,
       command: text,
@@ -265,6 +266,11 @@
     $('planPanel').hidden = false;
     $('planTitle').textContent = plan.title;
     $('planDesc').textContent = plan.description;
+    var also = plan.also || [];
+    $('planAlso').hidden = !also.length;
+    $('planAlso').textContent = also.length
+      ? 'Also heard in this sentence: ' + also.join(', ') + '. Not part of this plan — dictate that as its own command.'
+      : '';
     var badge = $('planSource');
     badge.hidden = false;
     badge.textContent = plan.source === 'jev' ? 'JEV CHOICE' : 'LOCAL RULES';

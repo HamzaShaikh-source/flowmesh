@@ -27,7 +27,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from flowmesh_config import VERSION, public_settings, save, secret, settings
-from planner import FORBIDDEN, WORKFLOWS, actions_for, command_is_usable, local_route
+from planner import FORBIDDEN, WORKFLOWS, actions_for, command_is_usable, local_route, other_intents
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 WEB = ROOT / "web"
@@ -147,6 +147,7 @@ def prepare_plan(command: object) -> dict | None:
         "description": WORKFLOWS[route][1],
         "source": decision["source"],
         "confidence": decision.get("confidence"),
+        "also": other_intents(route, command),
         "actions": actions_for(route, command),
         "expires": time.monotonic() + PLAN_LIFETIME,
         "created": timestamp(),

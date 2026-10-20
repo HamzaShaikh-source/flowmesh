@@ -42,7 +42,7 @@ In desktop edition the same plan now:
 - Does one sentence become a plan you would actually accept? (Real problem test.)
 - Does the disabled/refused path look deliberate rather than broken? (`desktop_only`, `not_configured`, unregistered command.)
 - Is the receipt language defensible under scrutiny? (`sent` ≠ `verified`, and a hash for anything written.)
-- Can you run the tests? `python -m unittest discover -s tests -v` — 49 tests, stdlib only, no network, no credentials.
+- Can you run the tests? `python -m unittest discover -s tests -v` — 54 tests, stdlib only, no network, no credentials.
 
 ## Keyboard / dictation notes
 

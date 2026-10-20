@@ -40,6 +40,8 @@ PERCENT = re.compile(r"\b(\d{1,3})\s*(?:%|percent\b)", re.I)
 
 MAX_COMMAND = 1000
 
+INTENT_PATTERNS = (("meeting", MEETING), ("research", RESEARCH), ("focus", FOCUS))
+
 
 def command_is_usable(command: object) -> bool:
     return isinstance(command, str) and 1 <= len(command.strip()) <= MAX_COMMAND
@@ -114,6 +116,19 @@ def actions_for(route: str, command: str) -> list[dict]:
     return actions
 
 
+def other_intents(route: str, command: str) -> list[str]:
+    """Routines this sentence also mentions, which this plan does not cover.
+
+    A dictated sentence often holds two jobs. Dropping the second one silently
+    would make the plan look complete when it is not, so the plan says so out
+    loud instead.
+    """
+    text = command.strip()
+    if CAPTURE_PREFIX.match(text):
+        text = CAPTURE_PREFIX.sub("", text) or text
+    return [WORKFLOWS[name][0] for name, pattern in INTENT_PATTERNS if name != route and pattern.search(text)]
+
+
 def plan_payload(route: str, command: str, source: str = "local", confidence: float | None = None) -> dict:
     title, description = WORKFLOWS[route]
     return {
@@ -122,5 +137,6 @@ def plan_payload(route: str, command: str, source: str = "local", confidence: fl
         "description": description,
         "source": source,
         "confidence": confidence,
+        "also": other_intents(route, command),
         "actions": actions_for(route, command),
     }
