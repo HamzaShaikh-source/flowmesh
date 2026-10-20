@@ -1,0 +1,4 @@
+# The runtime and the whole test suite are stdlib-only on purpose: a judge can
+# clone the repo and run the tests without installing anything.
+# Install this only if you want OS credential-store storage for secrets.
+keyring==25.7.0

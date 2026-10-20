@@ -1,29 +1,57 @@
-name: Windows app
+name: FlowMesh
 
 on:
   push:
   pull_request:
 
 jobs:
-  test-and-package:
-    runs-on: windows-latest
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install test dependencies (no GUI toolkit needed)
+        run: python -m pip install -r requirements-test.txt
+      - name: Unit, HTTP, security, artifact and parity tests
+        run: python -m unittest discover -s tests -v
+      - name: JavaScript syntax check
+        shell: bash
+        run: |
+          node --check web/core.js
+          node --check web/ui.js
+      - name: Planner parity gate (Python <-> browser)
+        run: python -m unittest tests.test_parity -v
+
+  package-windows:
+    name: package (windows)
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install desktop dependencies
-        run: python -m pip --isolated install -r requirements-desktop.txt
-      - name: Test runtime
-        run: python -m unittest discover -s tests -v
-      - name: Check browser code
-        run: node --check dist/app.js
-      - name: Package Windows app
+        run: python -m pip install -r requirements-desktop.txt
+      - name: Build desktop app
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FlowMesh --distpath release --workpath build --add-data "dist;dist" --collect-all keyring desktop.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name FlowMesh `
+            --distpath release --workpath build `
+            --add-data "web;web" --collect-all keyring desktop.py
           Compress-Archive -LiteralPath release\FlowMesh -DestinationPath release\FlowMesh-Windows.zip
-      - uses: actions/upload-artifact@v7
+          (Get-FileHash release\FlowMesh-Windows.zip -Algorithm SHA256).Hash
+      - uses: actions/upload-artifact@v4
         with:
           name: FlowMesh-Windows
           path: release/FlowMesh-Windows.zip

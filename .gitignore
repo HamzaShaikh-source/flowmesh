@@ -11,3 +11,4 @@ release/
 *.spec
 !dist/
 !dist/**
+shots/

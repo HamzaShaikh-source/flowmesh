@@ -1,15 +1,33 @@
-"""User-owned integration settings. Secrets live in Windows Credential Manager."""
+"""User-owned integration settings.
+
+Secrets prefer the OS credential store (Windows Credential Manager, macOS
+Keychain, Secret Service on Linux). When no backend is available the app falls
+back to a 0600 JSON file next to the settings, and the UI says which one is in
+use. Nothing here is ever returned by the HTTP API.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import stat
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
-import keyring
-
 APP_NAME = "FlowMesh"
+VERSION = "1.1.0"
+
+try:  # Optional: the app must run with a bare Python interpreter.
+    import keyring
+    from keyring.errors import KeyringError
+except Exception:  # pragma: no cover - depends on the machine
+    keyring = None
+
+    class KeyringError(Exception):
+        pass
+
+
 FIELDS = {
     "board_url": "FLOWMESH_BOARD_URL",
     "docs_url": "FLOWMESH_DOCS_URL",
@@ -19,7 +37,7 @@ FIELDS = {
 }
 DEFAULTS = {
     "board_url": "https://github.com/HamzaShaikh-source/flowmesh/issues",
-    "docs_url": "https://docs.python.org/3/",
+    "docs_url": "https://github.com/HamzaShaikh-source/flowmesh/tree/main/docs",
     "ha_url": "",
     "light_entity": "",
     "phone_service": "",
@@ -27,38 +45,76 @@ DEFAULTS = {
 SECRET_ENV = {"jev_key": "TYPESAFE_API_KEY", "ha_token": "FLOWMESH_HA_TOKEN"}
 
 
-def config_path() -> Path:
+def config_dir() -> Path:
     root = os.environ.get("FLOWMESH_CONFIG_DIR")
     if root:
-        return Path(root) / "settings.json"
-    appdata = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
-    if appdata:
-        return Path(appdata) / APP_NAME / "settings.json"
-    return Path.home() / f".{APP_NAME.lower()}" / "settings.json"
+        return Path(root)
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+        if base:
+            return Path(base) / APP_NAME
+    elif sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_NAME
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        return Path(xdg) / APP_NAME.lower()
+    return Path.home() / f".{APP_NAME.lower()}"
+
+
+def config_path() -> Path:
+    return config_dir() / "settings.json"
+
+
+def _secrets_path() -> Path:
+    return config_dir() / "secrets.json"
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def settings() -> dict[str, str]:
-    try:
-        saved = json.loads(config_path().read_text(encoding="utf-8"))
-        if not isinstance(saved, dict):
-            saved = {}
-    except (OSError, ValueError):
-        saved = {}
+    saved = _read_json(config_path())
     return {name: str(saved.get(name) or os.environ.get(env) or DEFAULTS[name]) for name, env in FIELDS.items()}
 
 
 def secret(name: str) -> str:
     if name not in SECRET_ENV:
         return ""
-    try:
-        stored = keyring.get_password(APP_NAME, name)
-    except (RuntimeError, OSError):
-        stored = None
+    stored = ""
+    if keyring is not None:
+        try:
+            stored = keyring.get_password(APP_NAME, name) or ""
+        except (KeyringError, RuntimeError, OSError):
+            stored = ""
+    if not stored:
+        stored = str(_read_json(_secrets_path()).get(name) or "")
     return stored or os.environ.get(SECRET_ENV[name], "")
 
 
+def secret_backend() -> str:
+    if keyring is not None:
+        try:
+            backend = keyring.get_keyring()
+            name = type(backend).__name__
+            if "fail" not in name.lower():
+                return name
+        except (KeyringError, RuntimeError, OSError):
+            pass
+    return "local file (0600)"
+
+
 def public_settings() -> dict:
-    return {**settings(), "jev_connected": bool(secret("jev_key")), "ha_token_connected": bool(secret("ha_token"))}
+    return {
+        **settings(),
+        "jev_connected": bool(secret("jev_key")),
+        "ha_token_connected": bool(secret("ha_token")),
+        "secret_backend": secret_backend(),
+    }
 
 
 def validate(values: dict) -> dict[str, str]:
@@ -91,7 +147,26 @@ def save(values: dict) -> dict:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(current, indent=2), encoding="utf-8")
     temporary.replace(path)
-    for name in SECRET_ENV:
-        if clean.get(name):
-            keyring.set_password(APP_NAME, name, clean[name])
+    wanted = {name: value for name, value in clean.items() if name in SECRET_ENV and value}
+    if wanted:
+        leftover = {}
+        for name, value in wanted.items():
+            stored = False
+            if keyring is not None:
+                try:
+                    keyring.set_password(APP_NAME, name, value)
+                    stored = True
+                except (KeyringError, RuntimeError, OSError):
+                    stored = False
+            if not stored:
+                leftover[name] = value
+        if leftover:
+            path_secrets = _secrets_path()
+            merged = {**_read_json(path_secrets), **leftover}
+            path_secrets.parent.mkdir(parents=True, exist_ok=True)
+            path_secrets.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+            try:
+                os.chmod(path_secrets, stat.S_IRUSR | stat.S_IWUSR)
+            except OSError:
+                pass
     return public_settings()
