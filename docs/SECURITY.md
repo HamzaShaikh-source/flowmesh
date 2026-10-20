@@ -37,6 +37,17 @@ There is no server, so the controls are about honesty and blast radius rather th
 - The run record is generated in-page and offered as a download; nothing is uploaded.
 - Deployed with a strict CSP (`default-src 'self'`, no inline script, no third-party requests), `noindex`, and `no-store` caching so a judge never sees a stale build. See `web/_headers`.
 
+## Controls specific to the Electron build
+
+The Electron app reuses the same loopback contract and the same safety rules; what changes is the host. The renderer is treated as a hostile page even though FlowMesh authored it:
+
+- **No Node in the renderer.** `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`, and a preload that exposes nothing but `platform` and `version` — no filesystem, no `ipcRenderer`, no shell.
+- **No privileged IPC that can act.** Every action goes through the same token-authenticated HTTP endpoints, validated in the main process. There is no `ipcMain.handle('run-something')` that a compromised renderer could call.
+- **Navigation is pinned.** The window only loads the loopback origin; every other navigation and every `window.open` is intercepted and handed to the OS browser instead, so a redirected page cannot inherit the app frame.
+- **Secrets encrypted at rest.** On Windows/macOS/Linux the two secrets are sealed with Electron's `safeStorage` (DPAPI / Keychain / libsecret) and stored as ciphertext; if the OS keystore is unavailable the app falls back to a `0600` file in the user profile, and says so in Settings.
+- **Same allowlists, same refusals.** `open_url` still only opens the configured board/docs URL, launcher targets come from a per-OS fixed list (`notepad`/`calc` on Windows, `TextEdit`/`Calculator` on macOS, `gedit`/`gnome-calculator` on Linux), bodies are capped, plans are single-use and expire in 300 seconds.
+- **Unsigned binaries.** The Windows `.exe`, macOS `.dmg` and Linux `.AppImage` are not code-signed or notarized; SmartScreen and Gatekeeper will warn. There is no auto-updater and no telemetry.
+
 ## Receipt integrity
 
 `sent` means "handed to the OS or an HTTP client". It is never promoted to `verified` without an observation: a spawned process, a scheduled timer, a file hash, or a Home Assistant state read-back that equals the requested brightness. This is enforced in the adapters, and `tests/test_actions.py` asserts that an unconfigured integration can never produce a success-looking status.

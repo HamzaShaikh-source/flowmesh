@@ -7,7 +7,7 @@ This file separates three things that are easy to blur: what the code proves, wh
 
 | # | Required | Status |
 | --- | --- | --- |
-| 1 | Link to the working project | `https://flowmesh-nohands.netlify.app/` (browser edition, no install) + source repo + Windows release |
+| 1 | Link to the working project | `https://flowmesh-nohands.netlify.app/` (browser edition, no install) + source repo + desktop releases: `FlowMesh-1.2.0-win-x64.zip` (Electron, sha256 `9DA162AC…A8CF7`, 141,980,631 B) and `FlowMesh-Windows.zip` (Python, sha256 `814E6A41…F95CD`, 12,645,620 B) |
 | 2 | Demo video, ≤ 2 minutes | **Not recorded yet.** Shot list and timings in [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md). Only the author can record it. |
 | 3 | Genuine Wispr Insights usage card | **Not supplied here.** Must be the author's own screenshot from Wispr Flow. Nothing in this repo imitates or approximates it. |
 | 4 | Short truthful explanation (problem, user, Wispr use) | Draft below — **edit the bracketed parts to your own words and facts before submitting.** |
@@ -22,7 +22,7 @@ This file separates three things that are easy to blur: what the code proves, wh
 >
 > **How Wispr Flow was used in the build.** [Say what you actually did, with real examples: which requirements you dictated into which tool, which follow-ups you spoke, what broke and how you dictated the fix. Keep it specific and short.] The product side is deliberately plain: the command box is an ordinary textarea so dictation lands at the caret. FlowMesh contains no speech engine and claims none.
 >
-> **What is real.** The plan engine, the approval gate, the single-use enforcement, the timer, the run record and its hash, the refusals, and the HTTP/security contract are covered by 54 stdlib-only tests (CI on Ubuntu, macOS and Windows). The browser edition runs the same planner and really opens the tab, runs the timer and generates the record. The Windows desktop runtime performs the OS actions; actions it cannot do say so.
+> **What is real.** The plan engine, the approval gate, the single-use enforcement, the timer, the run record and its hash, the refusals, and the HTTP/security contract are covered by 57 stdlib-only Python tests plus 18 Node tests and a 10-check end-to-end run that launches the real Electron app (CI on Ubuntu, macOS and Windows). The browser edition runs the same planner and really opens the tab, runs the timer and generates the record. The desktop runtimes perform the OS actions; actions they cannot do say so.
 
 ## 3. What is verified by engineering (do not overstate beyond this)
 
@@ -32,7 +32,7 @@ This file separates three things that are easy to blur: what the code proves, wh
 - Run records written atomically with byte count + SHA-256; hash re-checked from disk in tests.
 - Browser edition exercised end-to-end in a real Chromium via Playwright: plan → approve → receipts → downloaded Markdown record.
 - Desktop edition exercised end-to-end: same flow against the local runtime, real OS file written, real tab opened, timer scheduled, `not_configured` reported honestly for Home Assistant.
-- Packaged Windows binary (`release/FlowMesh-Windows.zip`, sha256 `F1C1764C…3AC470`, 12,972,538 bytes) exercised after unzipping to a clean directory: windowed launch shows a real `FlowMesh` window; headless run plans → executes once → refuses replay `409` and amended payload `400`; unauthenticated `/api/status` → `401`.
+- Packaged Windows binary (`release/FlowMesh-Windows.zip`, sha256 `814E6A41…F95CD`, 12,645,620 bytes) exercised after unzipping to a clean directory: windowed launch shows a real `FlowMesh` window; headless run plans → executes once → refuses replay `409` and amended payload `400`; unauthenticated `/api/status` → `401`.
 - Settings persist to `%APPDATA%\FlowMesh\settings.json` across a process restart; an unknown key is refused `400` with `Unknown setting`; GET `/api/settings` returns only booleans (`ha_token_connected`, `jev_connected`) and never a secret value.
 - Run records land in `~/FlowMesh/runs/<stamp>-<route>-<id>.md` with the approved actions and a receipt table.
 - Deployed site checked in a fresh Chromium context: badge `Browser edition · live`, second-intent disclosure rendered, approve → `VERIFIED` receipt; served `app.css`, `core.js`, `ui.js` hash-identical to `web/`.

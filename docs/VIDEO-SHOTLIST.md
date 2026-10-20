@@ -15,7 +15,7 @@ Everything marked **[YOU]** can only be recorded by you: your voice, your screen
 | 1:14–1:34 | Approve & run: timer ticking, tab opens, receipts appear; point at `sent` vs `verified` vs `not_configured` | Say the honest line: "Phone and lamp aren't configured here, so they say so instead of pretending." |
 | 1:34–1:44 | Run record: download in browser, and (if you have the Windows build) the `.md` file in `~/FlowMesh/runs/` with its SHA-256 | One line: "Every run leaves a record." |
 | 1:44–1:52 | **Refusal**: type "delete my files" → refused with a reason; then replay/expired plan if you want a second beat | This is the trust argument; do not skip it. |
-| 1:52–2:00 | **[YOU]** Close: test count on screen (`54 tests, OK`), live link, repo link | "Stdlib only, 54 tests, and the browser edition is the same planner. Link's below." |
+| 1:52–2:00 | **[YOU]** Close: test count on screen (`57 tests, OK` + `18/18 node`), live link, repo link | "Stdlib only, 57 tests, and the browser edition is the same planner. Link's below." |
 
 ## Recording notes
 

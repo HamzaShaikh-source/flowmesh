@@ -140,3 +140,26 @@ bridge.py ──► /api/plan ──► planner.py ──► plan (id, expires 3
 - Home Assistant, Jev, and Wispr evidence require the owner's accounts and
   hardware. The submission materials separate verified engineering from
   owner-supplied evidence, and no numbers are invented.
+
+## v1.2.0 — adding an Electron runtime (decided 20 October 2026)
+
+The question was whether the desktop app should become an Electron app. The
+answer was yes, but as an **additional** runtime over the same UI and planner,
+not a replacement:
+
+- **Why add it.** The packaged Python app only runs on Windows. The single
+  largest risk in this submission is a judge on a Mac or Linux box who cannot
+  open the desktop product at all. Electron gives one codebase and real binaries
+  for all three, without touching the deployed browser edition.
+- **Why not replace the Python app.** It is tested, packaged, released, and
+  works. Replacing it would trade a verified artifact for an unverified one.
+  The Python runtime stays as the Windows build; both share the same contract.
+- **Why the bridge is reimplemented in JS instead of bundling Python.** Shipping
+  a Python sidecar inside Electron means two runtimes, two installers and a
+  bundling story that breaks on macOS notarization. The bridge is ~400 lines
+  with an already-pinned contract; the honest cost is a second implementation,
+  paid for with a shared golden file that both languages are tested against.
+- **What this does not claim.** The Electron binaries are unsigned and the
+  macOS/Linux builds come from CI, not from a hand-run on those machines. That
+  limitation is written in `SECURITY.md` and `ELECTRON.md` instead of hidden.
+

@@ -1,20 +1,24 @@
 # Architecture
 
-One planner, one UI, two runtimes. The point of the split is that the thing a judge can open in a browser is the same product logic as the thing that can actually drive a Windows machine — not a mock of it.
+One planner and one UI, three runtimes. The point of the split is that the thing a judge can open in a browser is the same product logic as the thing that can actually drive their own machine — not a mock of it.
 
 ```
                  ┌───────────────────────────────┐
-                 │  web/index.html + web/ui.js   │  same file, both modes
+                 │  web/index.html + web/ui.js   │  same files, every mode
                  └───────────────┬───────────────┘
         GET /api/status → 404    │    GET /api/status → 200
-                 ┌───────────────┴───────────────┐
-                 │                               │
-   browser edition (hosted, static)      desktop edition (local)
-   web/core.js  ← port of planner.py     bridge.py  (127.0.0.1, token)
-   Blob download of the record           ~/FlowMesh/runs/*.md + SHA-256
-   window.open, in-page timer            OS browser, server timer, Notepad,
-                                         Home Assistant, credential store
+        ┌────────────────────────┼────────────────────────┐
+        │                        │                        │
+ browser edition          desktop (Electron)      desktop (Packaged Python)
+ hosted, static           electron/runtime.js     bridge.py + pywebview
+ web/core.js              web/core.js via require  planner.py
+ Blob download of record  ~/FlowMesh/runs/*.md     ~/FlowMesh/runs/*.md
+ window.open, page timer  OS browser, OS timer,    same, plus Windows
+                          Notepad/TextEdit/gedit,   Credential Manager
+                          Home Assistant, keychain
 ```
+
+Both desktop runtimes speak the **same loopback contract** (`/api/status`, `/api/plan`, `/api/execute`, `/api/cancel`, `/api/settings`, `/api/events`), so the UI never learns which one it is talking to, and both are exercised by their own suite against the same rules.
 
 ## Planner (authoritative)
 
@@ -24,12 +28,16 @@ One planner, one UI, two runtimes. The point of the split is that the thing a ju
 - **Parameters** — minutes are clamped to 1–180, brightness to 1–100; nonsense is ignored rather than guessed.
 - **Actions** — drawn from a fixed registry (`ACTION_LIB`) with a `kind`, a target and a surface. There is no free-form command field anywhere in the plan or the API.
 - **Refusal** — destructive or unregistered intent returns `route: refuse` with a spoken reason, before any plan exists.
+- **Second intent** — when one dictated sentence names two jobs, the plan carries `also: [...]` naming the routine it did *not* run, so nothing is silently dropped.
 
-`web/core.js` is a line-for-line port. `tests/parity.js` prints the JS planner's output for every fixture in `tests/fixtures/planner_cases.json`; `tests/test_parity.py` compares it to Python's. Drift fails CI on all three operating systems, in both directions.
+`web/core.js` is a line-for-line port. Two gates keep it honest:
+
+1. `tests/parity.js` + `tests/test_parity.py` — fixture-by-fixture comparison of Python and JS output.
+2. `electron/test/fixtures/planner_golden.json`, exported by `scripts/export_planner_golden.py` from `planner.py`, asserted from **both** sides: `tests/test_planner_golden.py` (Python) and `electron/test/parity.test.js` (Node). Whichever runtime drifts, one suite fails in the language that changed.
 
 ## Review, approval, single use
 
-- In desktop edition the plan lives in server memory with a 5-minute expiry and a one-use ID. The client only ever sends `{"plan": "<id>"}` to `/api/execute`.
+- In both desktop runtimes the plan lives in the runtime process with a 5-minute expiry and a one-use ID. The client only ever sends `{"plan_id": "<id>"}` to `/api/execute`, and any extra key is rejected with `400 Invalid plan`.
 - In browser edition there is no server, so the plan object lives in the page; the one-use rule is enforced by the same state machine and the record is generated client-side.
 - Approval is a distinct, explicit click (`Approve & run`), reachable from the keyboard (`Ctrl/Cmd+Shift+Enter`) and cancellable (`Esc`).
 

@@ -7,7 +7,9 @@ FlowMesh turns one dictated sentence into a bounded, line-by-line plan you appro
 Built for **No Hands: The Wispr Challenge** (WeMakeDevs × Wispr Flow), Builders track, by Hamza Shaikh.
 
 - **Try it in the browser — no install:** https://flowmesh-nohands.netlify.app/
-- **Windows app (unzip, run `FlowMesh.exe`):** https://github.com/HamzaShaikh-source/flowmesh/releases
+- **Desktop app — download and run:** https://github.com/HamzaShaikh-source/flowmesh/releases
+  - `FlowMesh-1.2.0-win-x64.zip` — Electron app for Windows, macOS and Linux (unzip, run `FlowMesh.exe`; 135 MiB)
+  - `FlowMesh-Windows.zip` — the packaged Python app (unzip, run `FlowMesh.exe`)
 - **Source:** this repository. Stdlib-only runtime, no build step for the UI.
 
 ---
@@ -44,40 +46,54 @@ The browser edition is not a simulation: the plan is real, the timer is real, th
 
 If one dictated sentence holds two jobs — *"capture the release link, and start a 20 minute research sprint"* — the plan says so out loud: **"Also heard in this sentence: Research sprint. Not part of this plan — dictate that as its own command."** Nothing is silently dropped, and nothing is silently added.
 
-## Two runtimes, one source
+## Three runtimes, one source
 
-`web/` is the only UI. `web/core.js` is a line-for-line port of `planner.py`, and `tests/test_parity.py` fails CI if the two ever disagree.
+`web/` is the only UI. `web/core.js` is a line-for-line port of `planner.py`, pinned by a shared golden file (`electron/test/fixtures/planner_golden.json`) that both sides are tested against — so a drift in either language fails CI.
 
-| Capability | Browser edition (hosted) | Desktop edition (Windows / macOS / Linux) |
-| --- | --- | --- |
-| Plan, review, approve, one-use enforcement | yes, in-page | yes, server-owned |
-| Approved URL | new tab (opener severed) | default browser via the OS |
-| Timer | in-page countdown | server-side timer, receipt on schedule |
-| Run record | generated + downloaded | written to `~/FlowMesh/runs/` with SHA-256 |
-| Settings persistence | no | yes (`settings.json`, secrets in the OS credential store) |
-| Notepad / Calculator | marked `desktop_only` | launched, allowlisted |
-| Phone notification (Home Assistant Companion) | `not_configured` | `sent` only when the service is configured; never called "verified" |
-| Lamp brightness | `not_configured` | `verified` **only** after a state read-back matches |
-| Jev Choice routing | local rules, labelled as such | Jev when a key is configured, labelled as such |
+| Capability | Browser edition (hosted) | Desktop — Electron (Win/macOS/Linux) | Desktop — Python (Windows) |
+| --- | --- | --- | --- |
+| Plan, review, approve, one-use enforcement | yes, in-page | yes, server-owned in the main process | yes, server-owned |
+| Approved URL | new tab (opener severed) | default browser via the OS | default browser via the OS |
+| Timer | in-page countdown | in-process timer, receipt on schedule | server-side timer, receipt on schedule |
+| Run record | generated + downloaded | written to `~/FlowMesh/runs/` with SHA-256 | written to `~/FlowMesh/runs/` with SHA-256 |
+| Settings persistence | no | yes (`settings.json`, secrets encrypted with the OS keystore) | yes (`settings.json`, secrets in the OS credential store) |
+| Notepad / Calculator | marked `desktop_only` | launched from a per-OS allowlist | launched from a Windows allowlist |
+| Phone notification (Home Assistant Companion) | `not_configured` | `sent` only when configured; never called "verified" | `sent` only when configured; never called "verified" |
+| Lamp brightness | `not_configured` | `verified` **only** after a state read-back matches | `verified` **only** after a state read-back matches |
+| Jev Choice routing | local rules, labelled as such | Jev when a key is configured, labelled as such | Jev when a key is configured, labelled as such |
 
-Nothing is shared between the two except the planner: the hosted page has no server, no storage, and no access to your machine.
+Nothing is shared between the browser page and the desktop runtimes except the planner and the UI: the hosted page has no server, no storage, and no access to your machine. The two desktop runtimes share the same loopback contract (same paths, same status codes, same receipt vocabulary) and the same `settings.json`, so a judge can move between them without relearning anything.
 
-## Install (Windows)
+## Install
+
+**Electron app (Windows, macOS, Linux)**
+
+1. Download the artifact for your OS from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases): `FlowMesh-1.2.0-win-x64.exe` (single portable executable), `.dmg`, or `.AppImage`.
+2. Run it. No installer, no admin, no Node install required.
+3. Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper will warn: *More info → Run anyway* on Windows, *right-click → Open* on macOS.
+4. The app opens its own window on `127.0.0.1` with a per-launch session token in the URL.
+
+**Python app (Windows)**
 
 1. Download `FlowMesh-Windows.zip` from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases).
 2. Unzip anywhere (no installer, no admin).
 3. Run `FlowMesh.exe`. Windows may show a SmartScreen prompt for an unsigned build — *More info → Run anyway*.
-4. The app opens its own window on `127.0.0.1` with a per-launch session token in the URL.
 
 ## Run from source (any OS)
 
 ```bash
+# Electron desktop app (cross-platform)
+npm install
+npm start                     # real window
+npx electron . --server-only  # headless bridge, prints one URL with its token
+
+# Python desktop app
 python desktop.py            # native window if pywebview is installed
 python desktop.py --browser  # plain browser tab, zero GUI dependencies
 python desktop.py --headless --port 8765   # server only, prints one URL with its token
 ```
 
-Stdlib only. `pywebview` and `keyring` are optional; without them you get a browser tab and a `0600` secrets file instead of the OS credential store. Full details in [docs/JUDGE-QUICKSTART.md](docs/JUDGE-QUICKSTART.md).
+The Python runtime is stdlib only; `pywebview` and `keyring` are optional. The Electron runtime needs Node 20+ for development only — the shipped binary bundles everything. Full details in [docs/JUDGE-QUICKSTART.md](docs/JUDGE-QUICKSTART.md) and [docs/ELECTRON.md](docs/ELECTRON.md).
 
 ## How Wispr Flow is used here
 
@@ -103,7 +119,8 @@ Full detail: [docs/SECURITY.md](docs/SECURITY.md).
 ## Tests and what has actually been run
 
 ```bash
-python -m unittest discover -s tests -v   # 54 tests: planner, HTTP contract, adapters, artifacts, parity
+python -m unittest discover -s tests -v   # 57 tests: planner, HTTP contract, adapters, artifacts, parity
+npm test                                  # 18 tests: Electron runtime + planner golden
 node --check web/core.js && node --check web/ui.js
 ```
 

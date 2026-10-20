@@ -1,133 +1,143 @@
-# Verification log
+# Verification
 
-Every line here was produced on the author's Windows machine on **20 October 2026** (IST), against this checkout. Nothing is projected or estimated. If a line says *not verified*, it stays that way until someone runs it.
+Everything below was run on this machine on **20 October 2026** (Windows 11,
+Python 3.11.16, Node 22, Electron 44.4.3). Where something is *not* verified it
+says so in the last section instead of being implied.
 
-## Test suite — local, Windows 11, Python 3.11.16
+## Test suites
 
 ```
-$ python -m unittest discover -s tests -v
-Ran 54 tests in 9.394s
+$ python -m unittest discover -s tests -q
+Ran 57 tests in 10.354s
 OK
 
-$ node --check web/core.js && node --check web/ui.js
-JS_OK
+$ npm test
+# tests 18
+# pass 18
+# fail 0
+
+$ node scripts/e2e_electron.js
+10/10 checks passed        # real Electron window, real renderer, real actions
 ```
 
-Coverage by file: planner behaviour and refusals, HTTP contract and trust boundaries (token, host, origin, replay, malformed bodies, client-composed actions), adapter receipt semantics, artifact writing + SHA-256, and Python↔JS planner parity over the shared fixtures.
+The 57 Python tests cover: planner routing and refusals, second-intent detection,
+plan lifetime and single use, the HTTP contract (host, origin, token, content
+type, body allowlist, body size), settings validation and secret redaction, run
+record hashing, parity between `planner.py` and `web/core.js`, and the planner
+golden shared with the Node suite.
 
-Command run: `.venv/Scripts/python.exe -m unittest discover -s tests`
+The 18 Node tests run the same contract against the Electron runtime over a real
+loopback socket, plus the planner golden — so neither language can drift alone.
 
-## Browser edition — real Chromium (Playwright), viewport 1440×900
-
-Verified in `http://127.0.0.1:8774/` served as a plain static directory (no `/api`):
-
-- badge reads `Browser edition · live`;
-- command → plan with five actions and surfaces, `EXPIRES IN …`, single use;
-- `Approve & run` → timer receipt `verified`, URL receipt `sent`, phone and lamp `not_configured` with reasons;
-- run record generated in-page and downloaded as `flowmesh-<stamp>-capture.md`;
-- `desktop_only` shown where the page cannot act;
-- console clean: no errors; two harmless warnings (unused preload) fixed by adding `crossorigin`;
-- the session token is stripped from the address bar after load.
-
-Screenshots: `shots/01-console-1440.png`, `shots/02-plan.png`, `shots/03-receipts.png`, `shots/05-browser-edition.png`.
-
-### The deployed site, same checks against the public URL
-
-`https://flowmesh-nohands.netlify.app/` — fresh Chromium context, no cache, no account:
-
-- `runtimeBadge` → `Browser edition · live`;
-- `Capture the release link. Start a 20 minute research sprint.` → plan `Quick capture`,
-  second-intent line rendered: *"Also heard in this sentence: Research sprint. Not part of this plan — dictate that as its own command."*;
-- `Expires in 04:56 · single use`;
-- `Approve & run` → `01 · Save the note · Record generated in this page · flowmesh-20261020-221620-capture.md · VERIFIED`;
-- screenshot `shots/07-live-browser-edition.png`.
-
-Byte comparison against the deployed files (`sha256sum` of local vs. served): `app.css`, `core.js` and `ui.js` are identical. `index.html` differs only by the two blocks Netlify injects at serve time (its own comment block and `/.netlify/scripts/hud` script); the document FlowMesh ships is otherwise the same file CI checks and PyInstaller packages.
-
-## Desktop edition — local runtime on 127.0.0.1
-
-Verified against `desktop.py --headless` with a real token in the URL:
-
-- `GET /api/status` reports platform, version and capability flags;
-- plan → approve → receipts, with the run record **written to disk** (`~/FlowMesh/runs/flowmesh-20261020-214117-research-9dOWEV.md`) and byte count + SHA-256 in the receipt;
-- the approved board URL was opened in the default browser (`sent`);
-- the 25-minute timer was scheduled server-side (`verified`);
-- phone notification and lamp returned `not_configured` (no Home Assistant configured on this machine) — no request was sent and none is claimed;
-- `"delete my files"` refused with `422` and no plan;
-- replay of a spent plan → `409`; foreign `Origin` → `403`; malformed JSON → `400`; client-composed action payload → `400`;
-- plan expiry is 300 s and plans live in memory only.
-
-## Packaged Windows build — `release/FlowMesh-Windows.zip`
+## The planner golden (how the two languages stay honest)
 
 ```
-$ python -m PyInstaller --noconfirm --clean --onedir --windowed --name FlowMesh \
+$ python scripts/export_planner_golden.py     # writes electron/test/fixtures/planner_golden.json
+```
+
+- `tests/test_planner_golden.py` asserts `planner.py` still produces every entry.
+- `electron/test/parity.test.js` asserts `web/core.js` still produces every entry.
+
+Both sides are pinned to one file, so a change on either side fails CI.
+
+## Browser edition — live at https://flowmesh-nohands.netlify.app/
+
+Verified in a fresh Chromium at 1512×950 after the 1.2.0 deploy:
+
+- badge `Browser edition · live`;
+- `focus for 25 minutes, open the board and start a timer` → plan **Deep focus**;
+- `Approve & run` → receipts
+  `Open project board:sent · Start 25 minute timer:verified · Notify my phone:desktop_only · Set desk lamp to 30%:desktop_only · Save run record:verified`,
+  and the run record downloaded as `flowmesh-20261020-232606-focus.md`;
+- screenshot `shots/13-live-after-1.2.0.png`.
+
+Byte comparison, local vs. served (`sha256sum`): `ui.js` `6411c5a44bb1…`,
+identical. `app.css` and `core.js` likewise; `index.html` differs only by the two
+blocks Netlify injects at serve time. Deploy is reproducible:
+`python scripts/deploy_netlify.py` (token read from the Netlify CLI config, never
+printed).
+
+## Python desktop runtime
+
+Verified against `desktop.py --headless` and the packaged binary:
+
+- plan → approve → receipts with the run record written to disk
+  (`~/FlowMesh/runs/<stamp>-<route>-<id>.md`) plus byte count and SHA-256;
+- the approved board URL is handed to the default browser (`sent`);
+- the 25-minute timer is scheduled (`verified`);
+- phone and lamp report `not_configured` — nothing is sent, nothing is claimed;
+- `"delete my files"` → `422`, no plan; replay → `409`; foreign `Origin` → `403`;
+  malformed JSON → `400`; client-composed actions → `400`;
+- plans live in memory, expire in 300 s, and are single use.
+
+## Packaged Windows build (Python) — `FlowMesh-Windows.zip`
+
+```
+$ .venv/Scripts/pyinstaller.exe --noconfirm --onedir --windowed --name FlowMesh \
     --distpath release --workpath build --add-data "web;web" --collect-all keyring desktop.py
-Build complete! The results are available in: D:\projects\flowmesh-handsfree
-elease
+=> Build complete. Output: release/FlowMesh (26 MB on disk)
 
-$ sha256sum FlowMesh-Windows.zip
-F1C1764CC7AA22B2ABD927786417F43ED601DD19011BB2D8FEAB0D9EF23AC470
-12.97 MB (12,972,538 bytes)
+$ sha256sum release/FlowMesh-Windows.zip
+814e6a41b6e3a9951521634c86d580d6d0463a152c87a43c6129d71fc53f95cd
+12,645,620 bytes
 ```
 
-Published digest, read back from the GitHub API after upload (must match the local file):
+Exercised from a **clean extraction** of that zip (`%TEMP%\fmpy`), not the source
+tree: `FlowMesh.exe --headless` serves the UI, writes `launch-url.txt`, and the
+shared probe reports **15/15 checks passed** (status/auth, plan, execute,
+receipts, record hash, replay, tamper, cross-origin, refusal, settings).
+
+## Electron build — `FlowMesh-1.2.0-win-x64.zip`
 
 ```
-$ gh release view v1.1.0 --json assets --jq '.assets[] | "\(.name) \(.size) \(.digest)"'
-FlowMesh-Windows.zip 12972538 sha256:f1c1764cc7aa22b2abd927786417f43ed601dd19011bb2d8feab0d9ef23ac470
+$ npx electron-builder --win --dir -c.win.signAndEditExecutable=false
+$ rcedit FlowMesh.exe --set-icon electron/assets/icon.ico --set-file-version 1.2.0 …
+$ 7za a -tzip -mx=5 FlowMesh-1.2.0-win-x64.zip win-unpacked
+
+$ sha256sum release-electron/FlowMesh-1.2.0-win-x64.zip
+9da162ac81b53242721b10f5f6557312725d7d6849e03fdc8cb7c5261a6a8cf7
+141,980,631 bytes (135.3 MiB), 320 MB unpacked
 ```
 
-Exercised on the **binary**, not the source tree:
+Exe metadata, read back with PowerShell after `rcedit`:
+`ProductName FlowMesh · FileVersion 1.2.0 · CompanyName FlowMesh`.
 
-- windowed launch → real window, `MainWindowTitle = FlowMesh`, `Responding = True`;
-- `--headless --port 8782` → `GET /api/status` `200`, `version 1.1.0`, `platform win32`,
-  capabilities `{launch_app: ready, open_url: ready, timer: ready, write_note: ready, notify: not_configured, light: not_configured}`;
-- plan → execute → **5 receipts**: `sent` (board URL handed to the browser), `verified` (25-minute timer),
-  `not_configured` ×2 (phone, lamp), `verified` (record written, 1,474 bytes + SHA-256);
-- replay → `409`; foreign `Origin` → `403`; `delete my files` → `422`; amended payload (`plan_id` + `actions`) → `400`; malformed JSON → `400`;
-- unauthenticated `GET /api/status` → `401`;
-- second intent in one dictated sentence is disclosed, not dropped: `POST /api/plan {"command":"Capture the release link. Start a 20 minute research sprint."}` → `route: capture`, `also: ["Research sprint"]`, exactly one action;
-- that plan executed once (`write_note` → `verified`), replay → `409`, amended payload (`plan_id` + `actions`) → `400`;
-- ZIP extracted to a clean temp directory → `FlowMesh.exe` runs there, serves the UI (`200`), writes `launch-url.txt` (0600) and completes the same five-receipt run.
+Exercised from a **clean extraction** of the published zip (`%TEMP%\fmex2`):
 
-### Settings, secrets and run records on the packaged build
+- starts `FlowMesh.exe --server-only`, binds `127.0.0.1`, writes the tokenised
+  `launch-url.txt`;
+- the same probe as the Python build: **15/15 checks passed**, including
+  `Unknown setting` (identical wording to the Python runtime),
+  `Plan expired or already used` on replay, `Invalid plan` on an amended body,
+  `Cross-origin requests are denied`, and `Command is unsupported, unclear, or not allowed`;
+- `app.asar` inside the extraction is byte-identical to the built folder
+  (`7e7dd9b730a4a215…`), so no stale assets shipped;
+- secrets stored through Electron `safeStorage` report
+  `backend=OS keystore (DPAPI / Keychain / libsecret)`; the Python build reports
+  `WinVaultKeyring`. Both redact values on read.
 
-- `POST /api/settings {"board_url": "…"}` → `200`; the value survives a process restart (`%APPDATA%\FlowMesh\settings.json`);
-- `POST /api/settings {"nonsense": "x"}` → `400 {"error": "Unknown setting"}`;
-- `GET /api/settings` returns `board_url, docs_url, ha_url, light_entity, phone_service, ha_token_connected, jev_connected, secret_backend` — no token or key value is ever returned;
-- executed plans write `~/FlowMesh/runs/<stamp>-<route>-<id>.md`; the file for the second-intent run reads `# FlowMesh run — Quick capture`, `Route: capture via local rules`, `Plan: … (single use)` and a receipt table.
+Windowed run, captured from the packaged binary itself: title bar **FlowMesh**,
+badge **`Desktop runtime · win32`**, the real console UI, no browser chrome
+(`shots/12-electron-packaged.png`).
 
-## CI on the shipped commit
+The renderer E2E (`scripts/e2e_electron.js`) drives the actual Electron window
+through Playwright's Electron API: types the command, plans, approves, waits for
+receipts, asserts `approve` is disabled afterwards, asserts every receipt label
+and status, and asserts the run record it names exists on disk.
 
-```
-$ gh run view 39461551660 --json jobs --jq '.jobs[] | "\(.name) \(.conclusion)"'
-test (ubuntu-latest) success
-test (windows-latest) success
-test (macos-latest) success
-package (windows) success
-```
+## CI
 
-`launch-url.txt` lives at `%APPDATA%\FlowMesh\launch-url.txt`; it carries the per-launch token, is user-only, and is overwritten on every launch.
+CI builds and tests on Ubuntu, Windows and macOS, and packages the Electron app
+on each OS. Job IDs for this commit are recorded in the release notes after the
+push; the workflow itself is `.github/workflows/ci.yml`.
 
 ## What is NOT verified (stated plainly)
 
 | Item | Status |
 | --- | --- |
 | Home Assistant phone notification against a real phone | not verified — no device or token on this machine; adapter covered by fixtures only |
-| Home Assistant lamp brightness read-back against a real lamp | not verified — same |
-| Jev Choice live routing | not verified — no API key used; stub-tested |
-| macOS / Linux desktop run | not verified locally; both run the same stdlib runtime and are exercised in CI |
-| Wispr Flow dictation | belongs to the author's own machine and account; see `SUBMISSION.md` |
-| Demo video, Insights card | not produced here, by design |
-
-## Prior claims re-checked
-
-The v1.0 notes claimed 19 tests. That number is superseded: the suite is now **54 tests**, all passing. The v1.0 release ZIP hash `43AEDFF2…819B5FBF` described the previous build and does **not** describe v1.1.0; the v1.1.0 artifact is:
-
-```
-FlowMesh-Windows.zip   12,972,538 bytes
-sha256:F1C1764CC7AA22B2ABD927786417F43ED601DD19011BB2D8FEAB0D9EF23AC470
-https://github.com/HamzaShaikh-source/flowmesh/releases/tag/v1.1.0
-```
-
-Live: `https://flowmesh-nohands.netlify.app/` · Source: `https://github.com/HamzaShaikh-source/flowmesh`
+| Lamp state read-back | not verified — no Home Assistant instance |
+| TypeSafe Jev model routing | not verified — no API key; the local planner path is what ships as default |
+| macOS and Linux desktop binaries, built and run by a human | not verified here — built by CI on those runners; this machine is Windows |
+| Code signing / notarisation | not signed — no certificates; Windows SmartScreen and macOS Gatekeeper will warn, and the docs say so |
+| The judge's browser and OS combination | cannot verify |
