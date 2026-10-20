@@ -90,6 +90,23 @@ Exercised on the **binary**, not the source tree:
 - that plan executed once (`write_note` → `verified`), replay → `409`, amended payload (`plan_id` + `actions`) → `400`;
 - ZIP extracted to a clean temp directory → `FlowMesh.exe` runs there, serves the UI (`200`), writes `launch-url.txt` (0600) and completes the same five-receipt run.
 
+### Settings, secrets and run records on the packaged build
+
+- `POST /api/settings {"board_url": "…"}` → `200`; the value survives a process restart (`%APPDATA%\FlowMesh\settings.json`);
+- `POST /api/settings {"nonsense": "x"}` → `400 {"error": "Unknown setting"}`;
+- `GET /api/settings` returns `board_url, docs_url, ha_url, light_entity, phone_service, ha_token_connected, jev_connected, secret_backend` — no token or key value is ever returned;
+- executed plans write `~/FlowMesh/runs/<stamp>-<route>-<id>.md`; the file for the second-intent run reads `# FlowMesh run — Quick capture`, `Route: capture via local rules`, `Plan: … (single use)` and a receipt table.
+
+## CI on the shipped commit
+
+```
+$ gh run view 39461551660 --json jobs --jq '.jobs[] | "\(.name) \(.conclusion)"'
+test (ubuntu-latest) success
+test (windows-latest) success
+test (macos-latest) success
+package (windows) success
+```
+
 `launch-url.txt` lives at `%APPDATA%\FlowMesh\launch-url.txt`; it carries the per-launch token, is user-only, and is overwritten on every launch.
 
 ## What is NOT verified (stated plainly)
@@ -105,4 +122,12 @@ Exercised on the **binary**, not the source tree:
 
 ## Prior claims re-checked
 
-The v1.0 notes claimed 19 tests. That number is superseded: the suite is now **54 tests**, all passing. The v1.0 release ZIP hash `43AEDFF2…819B5FBF` described the previous build and does **not** describe v1.1.0; the v1.1.0 hash is published in the release notes and below.
+The v1.0 notes claimed 19 tests. That number is superseded: the suite is now **54 tests**, all passing. The v1.0 release ZIP hash `43AEDFF2…819B5FBF` described the previous build and does **not** describe v1.1.0; the v1.1.0 artifact is:
+
+```
+FlowMesh-Windows.zip   12,972,538 bytes
+sha256:F1C1764CC7AA22B2ABD927786417F43ED601DD19011BB2D8FEAB0D9EF23AC470
+https://github.com/HamzaShaikh-source/flowmesh/releases/tag/v1.1.0
+```
+
+Live: `https://flowmesh-nohands.netlify.app/` · Source: `https://github.com/HamzaShaikh-source/flowmesh`
