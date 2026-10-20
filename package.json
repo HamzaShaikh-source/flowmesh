@@ -11,7 +11,7 @@
     "serve": "electron . --server-only",
     "test": "node --test electron/test/parity.test.js electron/test/runtime.test.js",
     "golden": "../.venv/Scripts/python.exe scripts/export_planner_golden.py",
-    "pack:dir": "electron-builder --win --dir -c.win.signAndEditExecutable=false",
+    "pack:dir": "electron-builder --win --dir -c.win.signAndEditExecutable=false -c.electronDist=node_modules/electron/dist",
     "pack:win": "electron-builder --win portable",
     "pack:mac": "electron-builder --mac dmg",
     "pack:linux": "electron-builder --linux AppImage"
@@ -33,7 +33,6 @@
       "web/**/*",
       "LICENSE"
     ],
-    "electronDist": "node_modules/electron/dist",
     "win": {
       "target": [
         "portable"
