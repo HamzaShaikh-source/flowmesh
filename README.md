@@ -137,7 +137,7 @@ bridge.py             local runtime: token, plans, execution, run records
 flowmesh_config.py    settings + OS credential store
 desktop.py            launcher: window / browser / headless
 tests/                planner, HTTP/security, adapters, artifacts, parity
-docs/                 decision record, quickstart, architecture, security, verification, submission kit
+docs/                 decision record, quickstart, architecture, security, electron, verification, submission kit
 dist/                 legacy v1.0 product page, kept only because the old ChatGPT-hosted site deploys from it
 ```
 
