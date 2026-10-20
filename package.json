@@ -1,0 +1,55 @@
+{
+  "name": "flowmesh",
+  "version": "1.2.0",
+  "private": true,
+  "description": "FlowMesh — say the work, approve the plan, watch real receipts.",
+  "main": "electron/main.js",
+  "author": "Hamza Shaikh",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "serve": "electron . --server-only",
+    "test": "node --test electron/test/parity.test.js electron/test/runtime.test.js",
+    "golden": "../.venv/Scripts/python.exe scripts/export_planner_golden.py",
+    "pack:dir": "electron-builder --win --dir -c.win.signAndEditExecutable=false",
+    "pack:win": "electron-builder --win portable",
+    "pack:mac": "electron-builder --mac dmg",
+    "pack:linux": "electron-builder --linux AppImage"
+  },
+  "devDependencies": {
+    "electron": "44.4.3",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.flowmesh.app",
+    "productName": "FlowMesh",
+    "artifactName": "FlowMesh-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release-electron",
+      "buildResources": "electron/assets"
+    },
+    "files": [
+      "electron/**/*",
+      "web/**/*",
+      "LICENSE"
+    ],
+    "electronDist": "node_modules/electron/dist",
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility"
+    }
+  }
+}

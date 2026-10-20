@@ -19,7 +19,7 @@ jobs:
           python-version: '3.12'
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - name: Install test dependencies (no GUI toolkit needed)
         run: python -m pip install -r requirements-test.txt
       - name: Unit, HTTP, security, artifact and parity tests
@@ -29,11 +29,19 @@ jobs:
         run: |
           node --check web/core.js
           node --check web/ui.js
+          node --check electron/main.js
+          node --check electron/runtime.js
+          node --check electron/config.js
+          node --check electron/preload.js
       - name: Planner parity gate (Python <-> browser)
         run: python -m unittest tests.test_parity -v
+      - name: Planner parity gate (Python <-> Electron golden)
+        run: python -m unittest tests.test_planner_golden -v
+      - name: Electron runtime suite (loopback contract, one-use plans, allowlists)
+        run: node --test electron/test/parity.test.js electron/test/runtime.test.js
 
   package-windows:
-    name: package (windows)
+    name: package (python, windows)
     runs-on: windows-latest
     needs: test
     steps:
@@ -55,3 +63,37 @@ jobs:
         with:
           name: FlowMesh-Windows
           path: release/FlowMesh-Windows.zip
+
+  package-electron:
+    name: package (electron, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win portable
+          - os: macos-latest
+            target: --mac dmg
+          - os: ubuntu-latest
+            target: --linux AppImage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install app dependencies
+        run: npm ci
+      - name: Build ${{ matrix.os }} artifact
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder ${{ matrix.target }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowMesh-electron-${{ matrix.os }}
+          path: |
+            release-electron/*.exe
+            release-electron/*.dmg
+            release-electron/*.AppImage

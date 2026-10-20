@@ -368,7 +368,22 @@
       api('/api/execute', { plan_id: plan.id }).then(function (data) {
         var results = data.results || [];
         var record = results.filter(function (r) { return r && r.path && r.sha256; }).pop() || null;
-        finish(plan, results, data.artifact || record);
+        // The runtime reports each step as { action: {...}, status, detail }.
+        // The receipt list renders flat rows, so flatten here — one place, both
+        // desktop runtimes, no change to what the runtime sends.
+        var receipts = results.map(function (r) {
+          var action = (r && r.action) || {};
+          return {
+            label: action.label || action.kind || 'Step',
+            surface: action.surface || 'pc',
+            status: (r && r.status) || 'failed',
+            detail: (r && r.detail) || '',
+            path: r && r.path,
+            sha256: r && r.sha256,
+            bytes: r && r.bytes
+          };
+        });
+        finish(plan, receipts, data.artifact || record);
       }).catch(function (err) {
         $('approveButton').disabled = false;
         handleError(err);

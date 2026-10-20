@@ -1,0 +1,616 @@
+'use strict';
+/**
+ * The Electron runtime core: plans, approval, actions, receipts, and the
+ * loopback HTTP contract.
+ *
+ * Deliberately free of any `require('electron')` so the whole safety surface is
+ * testable under `node --test` on a bare interpreter, the same way bridge.py is
+ * testable under unittest. main.js injects the two platform hooks it needs:
+ * `openExternal` (Electron shell) and `cipher` (Electron safeStorage).
+ *
+ * Same rules as the Python bridge: the UI can name a command and an id, never
+ * an action payload. Plans expire, are consumed once, and every receipt states
+ * what actually happened.
+ */
+
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const http = require('node:http');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+
+const core = require('../web/core.js');
+const { VERSION, createStore } = require('./config.js');
+
+const PLAN_LIFETIME = 300;
+const MAX_EVENTS = 200;
+const MAX_BODY = 8192;
+const ALLOWED_APPS = ['notepad', 'calculator'];
+const ALLOWED_URLS = {
+  project_board: ['board_url', 'https://github.com/HamzaShaikh-source/flowmesh/issues'],
+  documentation: ['docs_url', 'https://github.com/HamzaShaikh-source/flowmesh/tree/main/docs'],
+};
+const CSP =
+  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; " +
+  "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+};
+
+function timestamp() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/** Only the two allowlisted apps, on each platform, never a caller command. */
+function appCommand(target, platform = process.platform) {
+  if (!ALLOWED_APPS.includes(target)) return null;
+  if (platform === 'win32') return target === 'notepad' ? ['notepad.exe'] : ['calc.exe'];
+  if (platform === 'darwin') {
+    return target === 'notepad' ? ['open', '-a', 'TextEdit'] : ['open', '-a', 'Calculator'];
+  }
+  const candidates =
+    target === 'notepad'
+      ? ['gedit', 'gnome-text-editor', 'kate', 'xed', 'mousepad']
+      : ['gnome-calculator', 'kcalc', 'galculator'];
+  for (const name of candidates) {
+    for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
+      const candidate = path.join(dir, name);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return [candidate];
+      } catch {
+        /* keep looking */
+      }
+    }
+  }
+  return null;
+}
+
+function artifactDir(env = process.env) {
+  const override = env.FLOWMESH_ARTIFACT_DIR;
+  const directory = override || path.join(os.homedir(), 'FlowMesh', 'runs');
+  fs.mkdirSync(directory, { recursive: true });
+  return directory;
+}
+
+function recordMarkdown(plan, receipts) {
+  const lastWithNote = [...plan.actions].reverse().find((action) => action.note);
+  const command = (lastWithNote && lastWithNote.note) || plan.command || '';
+  const source =
+    { jev: 'Jev Choice', jev_unavailable: 'local rules (Jev unreachable)' }[plan.source] || 'local rules';
+  const lines = [
+    `# FlowMesh run — ${plan.title}`,
+    '',
+    `- When: ${timestamp()}`,
+    `- Route: \`${plan.route}\` via ${source}`,
+    `- Plan: \`${plan.id.slice(0, 12)}…\` (single use)`,
+    `- Platform: ${process.platform}`,
+    '',
+    '## Actions as approved',
+    '',
+  ];
+  plan.actions.forEach((action, index) => {
+    const value = action.value === undefined || action.value === null ? '' : ` (${action.value})`;
+    lines.push(`${index + 1}. ${action.label}${value} — ${action.detail}`);
+  });
+  lines.push('', '## Receipts', '', '| # | Action | Surface | Status | Detail |', '| --- | --- | --- | --- | --- |');
+  receipts.forEach((receipt, index) => {
+    const detail = String(receipt.detail || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+    lines.push(
+      `| ${index + 1} | ${receipt.action.label} | ${receipt.action.surface} | ${receipt.status} | ${detail} |`,
+    );
+  });
+  lines.push('', '## What was said, verbatim', '', '~~~text', command.replace(/~~~/g, '\\~\\~\\~'), '~~~', '');
+  lines.push(
+    'A `sent` receipt means the request left FlowMesh. `verified` means FlowMesh observed the',
+    'result (a file it wrote and hashed, or a device state it read back). Anything the runtime',
+    'could not do is recorded as `not_configured`, `unavailable`, `denied`, or `failed`.',
+    '',
+  );
+  return lines.join('\n');
+}
+
+function createRuntime(options = {}) {
+  const {
+    webDir = path.join(__dirname, '..', 'web'),
+    store = createStore(),
+    openExternal = null,
+    env = process.env,
+    platform = process.platform,
+    fetchImpl = globalThis.fetch,
+  } = options;
+
+  const sessionToken = crypto.randomBytes(24).toString('base64url');
+  const plans = new Map();
+  const events = [];
+  let timer = null;
+  let timerEnd = null;
+
+  const capabilities = () => {
+    const s = store.settings();
+    const configured = Boolean(s.ha_url && store.secret('ha_token'));
+    return {
+      open_url: 'ready',
+      launch_app: appCommand('notepad', platform) || appCommand('calculator', platform) ? 'ready' : 'unavailable',
+      timer: 'ready',
+      write_note: 'ready',
+      notify: configured && s.phone_service.startsWith('mobile_app_') ? 'ready' : 'not_configured',
+      light: configured && s.light_entity.startsWith('light.') ? 'ready' : 'not_configured',
+    };
+  };
+
+  async function jevRoute(command, choices) {
+    const key = store.secret('jev_key');
+    if (!key) return { route: null, source: 'local', confidence: null };
+    const criteria = {};
+    for (const name of choices) criteria[name] = `Run the ${name.replace(/_/g, ' ')} workflow`;
+    criteria.none = "No registered workflow matches the user's request";
+    const body = {
+      model: 'jev-latest',
+      state: { spoken_command: command, available_workflows: choices },
+      questions: {
+        route: {
+          type: 'choice',
+          instructions: 'Which registered workflow best matches the spoken command? Choose none when unclear.',
+          criteria,
+        },
+      },
+    };
+    try {
+      const response = await fetchImpl('https://api.typesafe.ai/v1/systemone', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(8000),
+      });
+      const answer = (await response.json()).answers.route;
+      const confidence = answer.confidence;
+      const route =
+        choices.includes(answer.choice) && typeof confidence === 'number' && confidence >= 0.65
+          ? answer.choice
+          : null;
+      return { route, source: 'jev', confidence };
+    } catch (error) {
+      return { route: null, source: 'jev_unavailable', error: error.name };
+    }
+  }
+
+  async function preparePlan(rawCommand) {
+    if (!core.commandIsUsable(rawCommand) || core.isForbidden(String(rawCommand).trim())) return null;
+    const command = String(rawCommand).trim();
+    const decision = await jevRoute(command, Object.keys(core.WORKFLOWS));
+    const route = decision.source === 'jev' ? decision.route : core.localRoute(command);
+    if (!(route in core.WORKFLOWS)) return null;
+    const payload = {
+      id: crypto.randomBytes(24).toString('base64url'),
+      route,
+      ...core.planPayload(route, command, decision.source, decision.confidence),
+      command,
+      expires: Date.now() + PLAN_LIFETIME * 1000,
+      created: timestamp(),
+    };
+    const now = Date.now();
+    for (const [key, value] of plans) if (value.expires < now) plans.delete(key);
+    plans.set(payload.id, payload);
+    const { expires, command: _ignored, ...visible } = payload;
+    return visible;
+  }
+
+  function cancelPlan(planId) {
+    if (typeof planId === 'string') plans.delete(planId);
+    return { cancelled: true };
+  }
+
+  function writeRecord(plan, receipts) {
+    try {
+      const directory = artifactDir(env);
+      const stamp = new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[-:]/g, '')
+        .replace('T', '-');
+      const name = `flowmesh-${stamp}-${plan.route}-${plan.id.slice(0, 6)}.md`;
+      const file = path.join(directory, name);
+      const data = Buffer.from(recordMarkdown(plan, receipts), 'utf8');
+      const temporary = path.join(directory, `.${name}.tmp`);
+      fs.writeFileSync(temporary, data);
+      fs.renameSync(temporary, file);
+      return {
+        status: 'verified',
+        detail: `Wrote ${name} (${data.length} bytes)`,
+        path: file,
+        bytes: data.length,
+        sha256: crypto.createHash('sha256').update(data).digest('hex'),
+      };
+    } catch (error) {
+      return { status: 'failed', detail: `Could not write the record (${error.name})` };
+    }
+  }
+
+  function startFocusTimer(minutes) {
+    if (timer) clearTimeout(timer);
+    timerEnd = Date.now() + minutes * 60 * 1000;
+    timer = setTimeout(() => {
+      timer = null;
+      timerEnd = null;
+      events.push({
+        at: timestamp(),
+        action: { kind: 'timer', label: 'Focus timer complete', surface: 'pc' },
+        status: 'verified',
+        detail: `${minutes} minute focus block finished`,
+      });
+      if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+    }, minutes * 60 * 1000);
+    if (typeof timer.unref === 'function') timer.unref();
+    return { status: 'verified', detail: `Timer scheduled for ${minutes} minutes`, timer_end: timerEnd };
+  }
+
+  async function homeAssistant(service, domain, data) {
+    const base = store.settings().ha_url.replace(/\/+$/, '');
+    const token = store.secret('ha_token');
+    if (!base || !token) return { status: 'not_configured', detail: 'Home Assistant is not configured' };
+    try {
+      const response = await fetchImpl(`${base}/api/services/${domain}/${service}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        signal: AbortSignal.timeout(8000),
+      });
+      await response.text();
+      if (!response.ok) return { status: 'failed', detail: `HTTP ${response.status}` };
+      return { status: 'sent', detail: 'Home Assistant accepted the service call' };
+    } catch (error) {
+      return { status: 'failed', detail: error.name };
+    }
+  }
+
+  async function homeState(entity) {
+    const base = store.settings().ha_url.replace(/\/+$/, '');
+    const token = store.secret('ha_token');
+    if (!base || !token) return null;
+    try {
+      const response = await fetchImpl(`${base}/api/states/${entity}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async function perform(action) {
+    const kind = action.kind;
+    const target = action.target;
+    if (kind === 'open_url' && target in ALLOWED_URLS) {
+      const [field, fallback] = ALLOWED_URLS[target];
+      const url = store.settings()[field] || fallback;
+      let parsed;
+      try {
+        parsed = new URL(url);
+      } catch {
+        return { status: 'denied', detail: 'Only HTTP(S) destinations are allowed' };
+      }
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return { status: 'denied', detail: 'Only HTTP(S) destinations are allowed' };
+      }
+      if (!openExternal) return { status: 'unavailable', detail: 'No browser adapter in this runtime' };
+      try {
+        await openExternal(url);
+        return { status: 'sent', detail: `Browser open requested for ${url}` };
+      } catch (error) {
+        return { status: 'failed', detail: error.name };
+      }
+    }
+    if (kind === 'launch_app' && ALLOWED_APPS.includes(target)) {
+      const command = appCommand(target, platform);
+      if (!command) return { status: 'unavailable', detail: 'No allowlisted app found on this computer' };
+      const child = spawn(command[0], command.slice(1), { detached: true, stdio: 'ignore', shell: false });
+      child.unref();
+      return { status: 'sent', detail: `Launch requested: ${path.basename(command[command.length - 1])}` };
+    }
+    if (kind === 'light' && target === 'desk_light') {
+      const brightness = action.value;
+      if (!Number.isInteger(brightness) || brightness < 1 || brightness > 100) {
+        return { status: 'denied', detail: 'Brightness must be 1–100' };
+      }
+      const entity = store.settings().light_entity;
+      if (!entity.startsWith('light.')) {
+        return { status: 'not_configured', detail: 'No request sent — add a Home Assistant light in Settings' };
+      }
+      const result = await homeAssistant('turn_on', 'light', { entity_id: entity, brightness_pct: brightness });
+      if (result.status !== 'sent') return result;
+      const observed = await homeState(entity);
+      const actual = observed && observed.attributes ? observed.attributes.brightness : undefined;
+      if (
+        observed &&
+        observed.state === 'on' &&
+        Number.isInteger(actual) &&
+        Math.abs(Math.round((actual / 255) * 100) - brightness) <= 2
+      ) {
+        return { status: 'verified', detail: `Home Assistant read back ${brightness}% brightness` };
+      }
+      return { status: 'unknown', detail: 'Command sent; device state could not be verified' };
+    }
+    if (kind === 'notify' && target === 'my_phone') {
+      const service = store.settings().phone_service;
+      if (!service.startsWith('mobile_app_')) {
+        return { status: 'not_configured', detail: 'No request sent — add a Companion service in Settings' };
+      }
+      const message = action.message;
+      if (typeof message !== 'string' || message.length < 1 || message.length > 160) {
+        return { status: 'denied', detail: 'Notification text must be 1–160 characters' };
+      }
+      return homeAssistant(service, 'notify', { title: 'FlowMesh', message });
+    }
+    if (kind === 'timer' && target === 'focus_timer') {
+      const minutes = action.value;
+      if (Number.isInteger(minutes) && minutes >= 1 && minutes <= 180) return startFocusTimer(minutes);
+    }
+    return { status: 'denied', detail: 'Action is not registered' };
+  }
+
+  async function executePlan(planId) {
+    const plan = plans.get(planId);
+    plans.delete(planId);
+    if (!plan || plan.expires < Date.now()) return null;
+    const actions = plan.actions;
+    const slots = new Array(actions.length).fill(null);
+    const noteSlots = [];
+    const startedAll = Date.now();
+    for (let index = 0; index < actions.length; index += 1) {
+      const action = actions[index];
+      if (action.kind === 'write_note') {
+        noteSlots.push(index);
+        continue;
+      }
+      const started = Date.now();
+      let result;
+      try {
+        result = await perform(action);
+      } catch (error) {
+        result = { status: 'failed', detail: error.name };
+      }
+      result.duration_ms = Date.now() - started;
+      slots[index] = result;
+    }
+    if (noteSlots.length) {
+      const written = slots
+        .map((slot, index) => (slot ? { action: actions[index], status: slot.status, detail: slot.detail } : null))
+        .filter(Boolean);
+      const receipt = writeRecord(plan, written);
+      for (const index of noteSlots) slots[index] = { ...receipt };
+    }
+    const results = actions.map((action, index) => {
+      const receipt = slots[index] || { status: 'failed', detail: 'No receipt produced' };
+      const subset = {};
+      for (const key of ['kind', 'target', 'label', 'surface', 'value']) {
+        if (key in action) subset[key] = action[key];
+      }
+      const event = { at: timestamp(), action: subset, ...receipt };
+      events.push(event);
+      return event;
+    });
+    if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+    void startedAll;
+    return results;
+  }
+
+  function status() {
+    return {
+      mode: 'desktop_app',
+      version: VERSION,
+      platform,
+      capabilities: capabilities(),
+      artifact_dir: artifactDir(env),
+      jev: Boolean(store.secret('jev_key')),
+      home_assistant: Boolean(store.settings().ha_url && store.secret('ha_token')),
+      windows: platform === 'win32',
+      timer_end: timerEnd,
+    };
+  }
+
+  function sendJson(response, payload, statusCode = 200) {
+    const data = Buffer.from(JSON.stringify(payload), 'utf8');
+    response.writeHead(statusCode, {
+      'Content-Type': 'application/json',
+      'Content-Length': data.length,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    response.end(data);
+  }
+
+  function serveStatic(request, response, port) {
+    const url = new URL(request.url, `http://127.0.0.1:${port}`);
+    let relative = decodeURIComponent(url.pathname);
+    if (relative === '/') relative = '/index.html';
+    const file = path.resolve(webDir, `.${relative}`);
+    if (!file.startsWith(path.resolve(webDir) + path.sep)) {
+      sendJson(response, { error: 'Not found' }, 404);
+      return;
+    }
+    fs.readFile(file, (error, data) => {
+      if (error) {
+        sendJson(response, { error: 'Not found' }, 404);
+        return;
+      }
+      const headers = {
+        'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+        'Content-Length': data.length,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer',
+        'X-Frame-Options': 'DENY',
+      };
+      if (relative === '/index.html') headers['Content-Security-Policy'] = CSP;
+      response.writeHead(200, headers);
+      response.end(data);
+    });
+  }
+
+  const server = http.createServer((request, response) => {
+    const port = server.address() ? server.address().port : 0;
+    const host = String(request.headers.host || '');
+    const trusted =
+      host === `127.0.0.1:${port}` || host === `localhost:${port}` ||
+      (port === 0 && /^(127\.0\.0\.1|localhost):\d+$/.test(host));
+    if (!trusted) {
+      sendJson(response, { error: 'Invalid host' }, 403);
+      return;
+    }
+    const pathname = new URL(request.url, `http://127.0.0.1:${port}`).pathname;
+    const authorized = () => {
+      const provided = String(request.headers['x-flowmesh-token'] || '');
+      if (!provided) return false;
+      const a = Buffer.from(provided);
+      const b = Buffer.from(sessionToken);
+      return a.length === b.length && crypto.timingSafeEqual(a, b);
+    };
+    const loopbackOrigin = () => {
+      const origin = request.headers.origin;
+      if (!origin) return true;
+      return origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
+    };
+
+    if (request.method === 'GET') {
+      if (pathname.startsWith('/api/') && !authorized()) {
+        sendJson(response, { error: 'Missing or invalid session token' }, 401);
+        return;
+      }
+      if (pathname === '/api/status') return sendJson(response, status());
+      if (pathname === '/api/settings') return sendJson(response, store.publicSettings());
+      if (pathname === '/api/events') return sendJson(response, { events: events.slice(-MAX_EVENTS) });
+      serveStatic(request, response, port);
+      return;
+    }
+
+    if (request.method !== 'POST') {
+      sendJson(response, { error: 'Method not allowed' }, 405);
+      return;
+    }
+    if (!authorized()) {
+      sendJson(response, { error: 'Missing or invalid session token' }, 401);
+      return;
+    }
+    if (!loopbackOrigin()) {
+      sendJson(response, { error: 'Cross-origin requests are denied' }, 403);
+      return;
+    }
+    const contentType = String(request.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    if (contentType !== 'application/json') {
+      sendJson(response, { error: 'JSON content type required' }, 415);
+      return;
+    }
+    const chunks = [];
+    let size = 0;
+    let tooLarge = false;
+    request.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY) {
+        tooLarge = true;
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on('end', async () => {
+      if (tooLarge) {
+        sendJson(response, { error: 'Body too large' }, 413);
+        return;
+      }
+      let body;
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!body || typeof body !== 'object' || Array.isArray(body)) body = null;
+      } catch {
+        body = null;
+      }
+      if (!body) {
+        sendJson(response, { error: 'Invalid JSON body' }, 400);
+        return;
+      }
+      if (pathname === '/api/settings') {
+        try {
+          sendJson(response, store.validate(body));
+        } catch (error) {
+          sendJson(response, { error: error.message }, 400);
+        }
+        return;
+      }
+      if (pathname === '/api/plan') {
+        const plan = await preparePlan(body.command);
+        if (plan === null) sendJson(response, { error: 'Command is unsupported, unclear, or not allowed' }, 422);
+        else sendJson(response, plan);
+        return;
+      }
+      if (pathname === '/api/execute') {
+        if (Object.keys(body).some((key) => key !== 'plan_id')) {
+          sendJson(response, { error: 'Invalid plan' }, 400);
+          return;
+        }
+        const planId = body.plan_id;
+        if (typeof planId !== 'string' || planId.length > 128) {
+          sendJson(response, { error: 'Invalid plan' }, 400);
+          return;
+        }
+        const results = await executePlan(planId);
+        if (results === null) sendJson(response, { error: 'Plan expired or already used' }, 409);
+        else sendJson(response, { results });
+        return;
+      }
+      if (pathname === '/api/cancel') {
+        sendJson(response, cancelPlan(body.plan_id));
+        return;
+      }
+      sendJson(response, { error: 'Not found' }, 404);
+    });
+  });
+
+  function listen(port = 0) {
+    return new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', () => resolve(server.address().port));
+    });
+  }
+
+  function close() {
+    if (timer) clearTimeout(timer);
+    return new Promise((resolve) => server.close(() => resolve()));
+  }
+
+  return {
+    server,
+    sessionToken,
+    listen,
+    close,
+    status,
+    capabilities,
+    preparePlan,
+    executePlan,
+    perform,
+    cancelPlan,
+    plans,
+    events,
+  };
+}
+
+module.exports = {
+  createRuntime,
+  appCommand,
+  artifactDir,
+  recordMarkdown,
+  timestamp,
+  PLAN_LIFETIME,
+  MAX_EVENTS,
+  ALLOWED_APPS,
+  ALLOWED_URLS,
+  CSP,
+};

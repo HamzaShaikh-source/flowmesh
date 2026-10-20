@@ -12,3 +12,6 @@ release/
 !dist/
 !dist/**
 shots/
+node_modules/
+release-electron/
+*.log

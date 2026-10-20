@@ -1,0 +1,394 @@
+{
+  "generator": "scripts/export_planner_golden.py",
+  "cases": [
+    {
+      "command": "Write a note about the release checklist and open the project board",
+      "plan": {
+        "route": "focus",
+        "title": "Deep focus",
+        "description": "One uninterrupted block, with the usual distractions handled.",
+        "source": "local",
+        "confidence": null,
+        "also": [],
+        "actions": [
+          {
+            "kind": "open_url",
+            "target": "project_board",
+            "label": "Open project board",
+            "detail": "Approved board URL in your browser",
+            "surface": "pc"
+          },
+          {
+            "kind": "timer",
+            "target": "focus_timer",
+            "label": "Start 45 minute timer",
+            "detail": "Runs while FlowMesh is open",
+            "surface": "pc",
+            "value": 45
+          },
+          {
+            "kind": "notify",
+            "target": "my_phone",
+            "label": "Notify my phone",
+            "detail": "Home Assistant Companion notification",
+            "surface": "phone",
+            "message": "Focus block started for 45 minutes."
+          },
+          {
+            "kind": "light",
+            "target": "desk_light",
+            "label": "Set desk lamp to 30%",
+            "detail": "Home Assistant light with read-back",
+            "surface": "space",
+            "value": 30
+          },
+          {
+            "kind": "write_note",
+            "target": "run_record",
+            "label": "Save run record",
+            "detail": "Markdown file in your FlowMesh folder",
+            "surface": "pc",
+            "note": "Write a note about the release checklist and open the project board"
+          }
+        ]
+      }
+    },
+    {
+      "command": "Start a 25 minute focus sprint and set the lamp to 40 percent",
+      "plan": {
+        "route": "focus",
+        "title": "Deep focus",
+        "description": "One uninterrupted block, with the usual distractions handled.",
+        "source": "local",
+        "confidence": null,
+        "also": [],
+        "actions": [
+          {
+            "kind": "open_url",
+            "target": "project_board",
+            "label": "Open project board",
+            "detail": "Approved board URL in your browser",
+            "surface": "pc"
+          },
+          {
+            "kind": "timer",
+            "target": "focus_timer",
+            "label": "Start 25 minute timer",
+            "detail": "Runs while FlowMesh is open",
+            "surface": "pc",
+            "value": 25
+          },
+          {
+            "kind": "notify",
+            "target": "my_phone",
+            "label": "Notify my phone",
+            "detail": "Home Assistant Companion notification",
+            "surface": "phone",
+            "message": "Focus block started for 25 minutes."
+          },
+          {
+            "kind": "light",
+            "target": "desk_light",
+            "label": "Set desk lamp to 40%",
+            "detail": "Home Assistant light with read-back",
+            "surface": "space",
+            "value": 40
+          },
+          {
+            "kind": "write_note",
+            "target": "run_record",
+            "label": "Save run record",
+            "detail": "Markdown file in your FlowMesh folder",
+            "surface": "pc",
+            "note": "Start a 25 minute focus sprint and set the lamp to 40 percent"
+          }
+        ]
+      }
+    },
+    {
+      "command": "Take a note for the standup and message my phone that I am heads down",
+      "plan": {
+        "route": "meeting",
+        "title": "Meeting reset",
+        "description": "Capture the follow-up while it is still fresh.",
+        "source": "local",
+        "confidence": null,
+        "also": [],
+        "actions": [
+          {
+            "kind": "open_url",
+            "target": "project_board",
+            "label": "Open project board",
+            "detail": "Approved board URL in your browser",
+            "surface": "pc"
+          },
+          {
+            "kind": "notify",
+            "target": "my_phone",
+            "label": "Notify my phone",
+            "detail": "Home Assistant Companion notification",
+            "surface": "phone",
+            "message": "Meeting finished. Write the follow-up while it is fresh."
+          },
+          {
+            "kind": "light",
+            "target": "desk_light",
+            "label": "Set desk lamp to 70%",
+            "detail": "Home Assistant light with read-back",
+            "surface": "space",
+            "value": 70
+          },
+          {
+            "kind": "write_note",
+            "target": "run_record",
+            "label": "Save run record",
+            "detail": "Markdown file in your FlowMesh folder",
+            "surface": "pc",
+            "note": "Take a note for the standup and message my phone that I am heads down"
+          }
+        ]
+      }
+    },
+    {
+      "command": "Capture the release link. Start a 20 minute research sprint.",
+      "plan": {
+        "route": "capture",
+        "title": "Quick capture",
+        "description": "File the thought before it disappears.",
+        "source": "local",
+        "confidence": null,
+        "also": [
+          "Research sprint"
+        ],
+        "actions": [
+          {
+            "kind": "write_note",
+            "target": "run_record",
+            "label": "Save the note",
+            "detail": "Markdown file in your FlowMesh folder",
+            "surface": "pc",
+            "note": "the release link. Start a 20 minute research sprint."
+          }
+        ]
+      }
+    },
+    {
+      "command": "Open the docs and start a 90 minute focus block",
+      "plan": {
+        "route": "research",
+        "title": "Research sprint",
+        "description": "References open, reading time bounded.",
+        "source": "local",
+        "confidence": null,
+        "also": [
+          "Deep focus"
+        ],
+        "actions": [
+          {
+            "kind": "open_url",
+            "target": "documentation",
+            "label": "Open documentation",
+            "detail": "Approved docs URL in your browser",
+            "surface": "pc"
+          },
+          {
+            "kind": "timer",
+            "target": "focus_timer",
+            "label": "Start 90 minute timer",
+            "detail": "Runs while FlowMesh is open",
+            "surface": "pc",
+            "value": 90
+          },
+          {
+            "kind": "notify",
+            "target": "my_phone",
+            "label": "Notify my phone",
+            "detail": "Home Assistant Companion notification",
+            "surface": "phone",
+            "message": "Research sprint started for 90 minutes."
+          },
+          {
+            "kind": "light",
+            "target": "desk_light",
+            "label": "Set desk lamp to 55%",
+            "detail": "Home Assistant light with read-back",
+            "surface": "space",
+            "value": 55
+          },
+          {
+            "kind": "write_note",
+            "target": "run_record",
+            "label": "Save run record",
+            "detail": "Markdown file in your FlowMesh folder",
+            "surface": "pc",
+            "note": "Open the docs and start a 90 minute focus block"
+          }
+        ]
+      }
+    },
+    {
+      "command": "Remind me of the standup notes and open the board",
+      "plan": {
+        "route": "meeting",
+        "title": "Meeting reset",
+        "description": "Capture the follow-up while it is still fresh.",
+        "source": "local",
+        "confidence": null,
+        "also": [],
+        "actions": [
+          {
+            "kind": "open_url",
+            "target": "project_board",
+            "label": "Open project board",
+            "detail": "Approved board URL in your browser",
+            "surface": "pc"
+          },
+          {
+            "kind": "notify",
+            "target": "my_phone",
+            "label": "Notify my phone",
+            "detail": "Home Assistant Companion notification",
+            "surface": "phone",
+            "message": "Meeting finished. Write the follow-up while it is fresh."
+          },
+          {
+            "kind": "light",
+            "target": "desk_light",
+            "label": "Set desk lamp to 70%",
+            "detail": "Home Assistant light with read-back",
+            "surface": "space",
+            "value": 70
+          },
+          {
+            "kind": "write_note",
+            "target": "run_record",
+            "label": "Save run record",
+            "detail": "Markdown file in your FlowMesh folder",
+            "surface": "pc",
+            "note": "Remind me of the standup notes and open the board"
+          }
+        ]
+      }
+    },
+    {
+      "command": "Set the desk lamp to 15 percent",
+      "plan": null
+    },
+    {
+      "command": "research competitor launch notes for twenty minutes",
+      "plan": {
+        "route": "research",
+        "title": "Research sprint",
+        "description": "References open, reading time bounded.",
+        "source": "local",
+        "confidence": null,
+        "also": [],
+        "actions": [
+          {
+            "kind": "open_url",
+            "target": "documentation",
+            "label": "Open documentation",
+            "detail": "Approved docs URL in your browser",
+            "surface": "pc"
+          },
+          {
+            "kind": "timer",
+            "target": "focus_timer",
+            "label": "Start 25 minute timer",
+            "detail": "Runs while FlowMesh is open",
+            "surface": "pc",
+            "value": 25
+          },
+          {
+            "kind": "notify",
+            "target": "my_phone",
+            "label": "Notify my phone",
+            "detail": "Home Assistant Companion notification",
+            "surface": "phone",
+            "message": "Research sprint started for 25 minutes."
+          },
+          {
+            "kind": "light",
+            "target": "desk_light",
+            "label": "Set desk lamp to 55%",
+            "detail": "Home Assistant light with read-back",
+            "surface": "space",
+            "value": 55
+          },
+          {
+            "kind": "write_note",
+            "target": "run_record",
+            "label": "Save run record",
+            "detail": "Markdown file in your FlowMesh folder",
+            "surface": "pc",
+            "note": "research competitor launch notes for twenty minutes"
+          }
+        ]
+      }
+    },
+    {
+      "command": "Start a five minute focus timer",
+      "plan": {
+        "route": "focus",
+        "title": "Deep focus",
+        "description": "One uninterrupted block, with the usual distractions handled.",
+        "source": "local",
+        "confidence": null,
+        "also": [],
+        "actions": [
+          {
+            "kind": "open_url",
+            "target": "project_board",
+            "label": "Open project board",
+            "detail": "Approved board URL in your browser",
+            "surface": "pc"
+          },
+          {
+            "kind": "timer",
+            "target": "focus_timer",
+            "label": "Start 45 minute timer",
+            "detail": "Runs while FlowMesh is open",
+            "surface": "pc",
+            "value": 45
+          },
+          {
+            "kind": "notify",
+            "target": "my_phone",
+            "label": "Notify my phone",
+            "detail": "Home Assistant Companion notification",
+            "surface": "phone",
+            "message": "Focus block started for 45 minutes."
+          },
+          {
+            "kind": "light",
+            "target": "desk_light",
+            "label": "Set desk lamp to 30%",
+            "detail": "Home Assistant light with read-back",
+            "surface": "space",
+            "value": 30
+          },
+          {
+            "kind": "write_note",
+            "target": "run_record",
+            "label": "Save run record",
+            "detail": "Markdown file in your FlowMesh folder",
+            "surface": "pc",
+            "note": "Start a five minute focus timer"
+          }
+        ]
+      }
+    },
+    {
+      "command": "note: judges can open the hosted console",
+      "plan": null
+    },
+    {
+      "command": "Delete the entire repo",
+      "plan": null
+    },
+    {
+      "command": "asdfgh",
+      "plan": null
+    }
+  ]
+}
