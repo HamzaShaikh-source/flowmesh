@@ -14,7 +14,7 @@ AXES = [
 
 S = {
  "flowmesh (ours)":            [(5,"repeated manual steps in own work; real dictations"),
-                                (5,"only entry that reads Wispr's own flow.sqlite, read-only"),
+                                (5,"only entry reading the dictated log; two rivals read Scratchpad via Wispr's official MCP"),
                                 (2,"repo shows product use; build-process voice not evidenced"),
                                 (3,"console opens free; flagship needs portable exe + Wispr installed"),
                                 (1,"no video yet"), (5,"84 py + 41 node tests, 7/7 CI, 4 CI artifacts"),
@@ -28,7 +28,7 @@ S = {
  "receipts (jars-demo)":       [(5,"verifying agent work, clearly personal"), (2,"voice as form input"), (3,"solo build, voice mentioned"),
                                 (4,"hosted; sign-in mentions"), (1,"no video in README"), (4,"147 files, MIT, tests"),
                                 (5,"Found/Partly/Missing/Off-limits/Can't tell")],
- "scar-tissue (j4yop)":        [(5,"agent repeats mistakes - personal"), (2,"voice capture into cards"), (2,"not evidenced"),
+ "scar-tissue (j4yop)":        [(5,"agent repeats mistakes - personal"), (3,"reads Scratchpad notes via Wispr's official MCP"), (2,"not evidenced"),
                                 (4,"hosted 200"), (1,"none"), (4,"66 files, MIT, tests"), (3,"feeds memory to agents, no gating")],
  "shiplog (Ankith-m1006)":     [(5,"own tracker across 10 hackathons"), (2,"voice input"), (5,"every prompt/commit dictated"),
                                 (1,"no hosted link"), (1,"none"), (3,"21 files, tests"), (3,"extracts tasks, no execution")],
@@ -56,6 +56,16 @@ S = {
  "operation-human (Kavish)":   [(2,"training sim"), (2,"voice"), (2,"not evidenced"),
                                 (4,"gh-pages playable"), (1,"none"), (2,"33 files"), (1,"no action model")],
  "we-makedevs (Aman071Raj)":   [(1,"empty repo"), (1,"nothing"), (1,"nothing"), (1,"nothing"), (1,"nothing"), (1,"0 files"), (1,"nothing")],
+ # Added 21 Oct after an external read of the field found three repos my search missed.
+ "debrief (Prashant)":         [(5,"commits/PRs/standups after every day's work"), (4,"official Wispr MCP: Scratchpad + Notetaker import, Flow keyboard, voice edits"),
+                                (3,"dictation claimed throughout, no build recording"), (5,"/play needs no sign-in on real public repos"),
+                                (1,"no video; animated gif only"), (5,"evals with open labelled cases, monorepo, docs"),
+                                (5,"every sentence cited or flagged; approval before anything ships")],
+ "docs-drift (ayush)":         [(4,"docs that code no longer supports"), (1,"no Wispr integration in product"), (2,"README: built-with-voice is a placeholder"),
+                                (2,"CLI only; demo pending deployment approval"), (1,"video pending"), (5,"PyPI, CI, SARIF, benchmark protocol, VS Code LSP"),
+                                (5,"evidence graph, accuracy explicitly not claimed")],
+ "flowinsights (awanish)":     [(4,"questions about your own sales data"), (1,"voice as input only, says so"), (2,"claims dictated prompts, 1 commit"),
+                                (1,"no hosted link, 5 files"), (1,"none"), (2,"1 commit, tests.py"), (2,"charts, no verification model")],
 }
 
 rows = []

@@ -3,11 +3,27 @@
 FlowMesh reads your own Wispr Flow history, read-only, so a dictation can become a
 plan without you retyping it.
 
-## Why a database read, and not an API
+## Two integration surfaces, and why this one
 
-Wispr Flow has no supported public API. It is a closed desktop app. The only
-integration point that exists on a normal install is the SQLite database it keeps
-locally, so that is what FlowMesh reads — and it reads it the careful way.
+Wispr Flow exposes two different things, and they are **not interchangeable**:
+
+- **A supported MCP server** at `https://api.wisprflow.ai/connect/mcp`, with OAuth
+  (`https://mcp-auth.wisprflow.com`, scopes `openid offline_access`) and tools including
+  `search_scratchpad_notes` and `get_scratchpad_note`. It exposes **Scratchpad notes** —
+  text you saved into Wispr's own notes — not the dictation log. Verified 21 Oct 2026: the
+  discovery document at `/.well-known/oauth-protected-resource` returns `200`, and the MCP
+  endpoint returns `401` without a bearer token.
+- **The local database**, which holds the **dictation log**: each transcript, the app it
+  landed in, latency, the dictionary. No supported interface exists for this one.
+
+FlowMesh reads the second, because the product needs *the sentence you just spoke, which app
+it went into, and how old it is*. A Scratchpad note is a different artifact — it is what you
+deliberately saved, not what you said a minute ago. Two other entries in this challenge read
+Scratchpad through the supported MCP; this connector does not, and that is a fair thing to
+hold against the design rather than a detail to hide.
+
+If the MCP surface would serve your case better, the honest description of this project is:
+broader data, less sanctioned path.
 
 ## Where the database lives
 

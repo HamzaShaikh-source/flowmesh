@@ -23,10 +23,14 @@ REPOS = [
     "adityabrabb/say-what-you-saw",
     "sushh-05/redline",
     "Aman071Raj/WeMakeDevs_Project_Wispr_Flow",
+    "Prashant-thakur77/Debrief",
+    "ayushagarwalhere/docs-drift",
+    "awanishkumarmishra2005-eng/flowinsights",
 ]
 
 SIG = {
     "flowsqlite": r"flow\.sqlite",
+    "wispr_mcp": r"connect/mcp|api\.wisprflow\.ai|search_scratchpad_notes|get_scratchpad_note|Wispr Flow MCP",
     "wispr_api": r"wispr[ _-]?(api|sdk)|WISPR_API|api\.wisprflow",
     "db_read": r"sqlite3|DatabaseSync|better-sqlite3",
     "electron": r"electron",
