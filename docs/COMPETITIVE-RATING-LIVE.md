@@ -117,6 +117,38 @@ criterion that asks whether Wispr was used "meaningfully", an OAuth integration 
 vendor's own MCP is the stronger evidence, and mine is the one a judge could reasonably ask
 "is this supported?" about. That is a real weakness in the standout feature, not a detail.
 
+## Code surface, measured
+
+Not an opinion — `code_surface.py` walks each clone and counts authored source
+(no `node_modules`, no build output, no lockfiles, no minified blobs).
+
+| Entry | LOC | files | test files | test cases | CI workflows | docs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| debrief (Prashant) | **67,269** | 705 | 165 | **~1,664** | 3 | 10 |
+| docs-drift | 19,398 | 163 | 39 | ~286 | **6** | **70** |
+| receipts | 10,197 | 124 | 19 | ~142 | 1 | 11 |
+| **flowmesh (ours)** | **8,027** | **40** | 16 | **~125** | 1 | 19 |
+| scar-tissue | 2,418 | 28 | 0 | 0 | 0 | 24 |
+
+Our counted 125 reconciles exactly with the real runners (84 Python + 41 Node), which is
+the only reason to trust the other columns.
+
+Two honest caveats: LOC is not quality, and it is not even like-for-like — a Next.js app
+carries framework boilerplate that a stdlib-only Python runtime does not, so 67k TypeScript
+is not eight times the product. And a test-file count says nothing about what the tests
+assert.
+
+**What this table settles: we are not #1 on code.** We are 4th of these five by volume, with
+the smallest suite of anyone who has one. Where we are genuinely first is narrower and
+measurable: **platform breadth of shipped artifacts** — a Windows portable exe, an Apple
+silicon dmg, a Linux AppImage and a Python zip, all built by CI from one commit, over one
+planner pinned by a shared golden file. No other entry in the field ships a runnable binary
+for three platforms — checked against the GitHub releases API across all 21 repos: ours has
+10 assets, every other entry has 0. Add the dictated-log connector and that is the whole of
+our lead — on code volume we are not first, and we should stop implying otherwise.
+
+
+
 ## What is actually distinctive, and what is not
 
 Still ours alone, and still worth the submission:
