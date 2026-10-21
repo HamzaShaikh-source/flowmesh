@@ -1,5 +1,9 @@
 # Competitive position — measured, not asserted
 
+> **Against the actual field:** this document rates FlowMesh against the 145-repo OSS
+> corpus. For the 18 live repos built for this challenge, with per-axis scores and a
+> verified event-relevance check, see [`COMPETITIVE-RATING-LIVE.md`](COMPETITIVE-RATING-LIVE.md).
+
 This is a self-assessment written by the person who built it, against evidence gathered
 from **145 public repositories** in the Wispr Flow and on-device-dictation space
 (`.research/seed_repos.md`) and a source-level read of the strongest ones
