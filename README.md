@@ -8,8 +8,10 @@ Built for **No Hands: The Wispr Challenge** (WeMakeDevs × Wispr Flow), Builders
 
 - **Try it in the browser — no install:** https://flowmesh-nohands.netlify.app/
 - **Desktop app — download and run:** https://github.com/HamzaShaikh-source/flowmesh/releases
-  - `FlowMesh-1.2.0-win-x64.zip` — Electron app for Windows, macOS and Linux (unzip, run `FlowMesh.exe`; 135 MiB)
-  - `FlowMesh-Windows.zip` — the packaged Python app (unzip, run `FlowMesh.exe`)
+  - `FlowMesh-1.2.0-win-x64.zip` — Electron app for **Windows** (unzip, run `FlowMesh.exe`; 135 MiB)
+  - `FlowMesh-1.2.0-mac-arm64.dmg` — Electron app for **Apple-silicon macOS**
+  - `FlowMesh-1.2.0-linux-x86_64.AppImage` — Electron app for **Linux x64** (`chmod +x`, then run)
+  - `FlowMesh-Windows.zip` — the smaller Windows-only Python build (12 MiB, no Node)
 - **Source:** this repository. Stdlib-only runtime, no build step for the UI.
 
 ---

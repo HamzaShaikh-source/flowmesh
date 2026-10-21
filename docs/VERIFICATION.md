@@ -70,7 +70,22 @@ Verified against `desktop.py --headless` and the packaged binary:
   malformed JSON → `400`; client-composed actions → `400`;
 - plans live in memory, expire in 300 s, and are single use.
 
-## Packaged Windows build (Python) — `FlowMesh-Windows.zip`
+## Published artifacts (release `v1.2.0`, tag on `ccf1527`)
+
+| Asset | Bytes | sha256 |
+| --- | --- | --- |
+| `FlowMesh-1.2.0-win-x64.zip` (Electron, Windows x64) | 141,980,631 | `9da162ac81b53242721b10f5f6557312725d7d6849e03fdc8cb7c5261a6a8cf7` |
+| `FlowMesh-1.2.0-mac-arm64.dmg` (Electron, Apple silicon) | 127,498,455 | `8613dd8b80888ef0ceeefa4321a9514cd80ffaa09e0ed1a841a697de9acce16e` |
+| `FlowMesh-1.2.0-linux-x86_64.AppImage` (Electron, Linux x64) | 125,100,893 | `1eb68c74ca0b61d3882b61f4aa92f43c4dcb420f061574c39b42abc4762da03c` |
+| `FlowMesh-Windows.zip` (Python desktop, Windows x64) | 12,645,620 | `814e6a41b6e3a9951521634c86d580d6d0463a152c87a43c6129d71fc53f95cd` |
+
+The digest GitHub reports for each asset was read back from the API and matches the
+local file byte for byte. The two Windows artifacts were additionally executed from
+a clean extraction. The macOS and Linux artifacts come from CI runners of their own
+OS; they are **not** executed here (no such machine) — the honest limit is recorded
+in the last section.
+
+## Packaged Windows build (Python)
 
 ```
 $ .venv/Scripts/pyinstaller.exe --noconfirm --onedir --windowed --name FlowMesh \
@@ -127,9 +142,21 @@ and status, and asserts the run record it names exists on disk.
 
 ## CI
 
-CI builds and tests on Ubuntu, Windows and macOS, and packages the Electron app
-on each OS. Job IDs for this commit are recorded in the release notes after the
-push; the workflow itself is `.github/workflows/ci.yml`.
+All seven jobs green on `ccf1527` (run `39471591777`):
+
+```
+test (ubuntu-latest)            success
+test (macos-latest)             success
+test (windows-latest)           success
+package (python, windows)       success
+package (electron, windows-latest) success
+package (electron, macos-latest)   success
+package (electron, ubuntu-latest)  success
+```
+
+The Electron packaging jobs produce real native artifacts on their own runners
+(`.dmg`, `.AppImage`, portable `.exe`). Job IDs and artifact sizes are recorded
+in the release notes.
 
 ## What is NOT verified (stated plainly)
 
@@ -138,6 +165,6 @@ push; the workflow itself is `.github/workflows/ci.yml`.
 | Home Assistant phone notification against a real phone | not verified — no device or token on this machine; adapter covered by fixtures only |
 | Lamp state read-back | not verified — no Home Assistant instance |
 | TypeSafe Jev model routing | not verified — no API key; the local planner path is what ships as default |
-| macOS and Linux desktop binaries, built and run by a human | not verified here — built by CI on those runners; this machine is Windows |
+| macOS and Linux desktop binaries, built and run by a human | not verified here — built by CI on those runners; this machine is Windows. CI built **arm64** macOS only; an Intel-Mac build would need a `macos-13` job (the browser edition covers Intel Macs today) |
 | Code signing / notarisation | not signed — no certificates; Windows SmartScreen and macOS Gatekeeper will warn, and the docs say so |
 | The judge's browser and OS combination | cannot verify |
