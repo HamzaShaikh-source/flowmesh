@@ -71,7 +71,8 @@ In desktop edition the same plan now:
 - Does one sentence become a plan you would actually accept? (Real problem test.)
 - Does the disabled/refused path look deliberate rather than broken? (`desktop_only`, `not_configured`, unregistered command.)
 - Is the receipt language defensible under scrutiny? (`sent` ≠ `verified`, and a hash for anything written.)
-- Can you run the tests? `python -m unittest discover -s tests -v` — 57 tests, stdlib only, no network, no credentials. The Electron runtime has its own suite: `npm test` — 18 tests over a real loopback socket, plus `node scripts/e2e_electron.js`, which launches the actual app and drives the actual renderer (10 checks).
+- Can you run the tests? `python -m unittest discover -s tests -v` — 84 tests, stdlib only, no network, no credentials. The Electron runtime has its own suite: `npm --prefix electron test` — 41 tests over a real loopback socket, plus `node scripts/e2e_electron.js`, which launches the actual app and drives the actual renderer (10 checks).
+- Do you want the numbers without running anything? [EVAL.md](EVAL.md) is generated from the shipped code by `python eval/run_eval.py`: 43/43 cross-runtime parity, 12/12 recorded plans reproduced, 6/6 destructive commands refused, 6/6 adversarial HTTP requests answered as designed, plus real readings from the local Wispr database. It states what it does not measure.
 
 ## Keyboard / dictation notes
 
