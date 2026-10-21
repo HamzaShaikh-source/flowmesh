@@ -14,6 +14,8 @@ Built for **No Hands: The Wispr Challenge** (WeMakeDevs × Wispr Flow), Builders
   - `FlowMesh-Windows.zip` — the smaller Windows-only Python build (12 MiB, no Node)
 - **Source:** this repository. Stdlib-only runtime, no build step for the UI.
 
+**New in this build — FlowMesh reads Wispr Flow directly.** Hold your Wispr key, speak, then press **Use my last dictation**: FlowMesh pulls that sentence out of your own Wispr Flow history, read-only, and hands it to the plan-approve-run loop. No copying, no retyping, no second app to alt-tab to. It reads a fixed allow-list of metadata columns and never touches the audio, screenshots or surrounding app text that live in the same file. If Wispr Flow is not installed, the panel says so instead of pretending. Details: [`docs/WISPR-CONNECTOR.md`](docs/WISPR-CONNECTOR.md).
+
 ---
 
 ## The problem it solves
