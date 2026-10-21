@@ -107,6 +107,25 @@ Wispr Flow is a separate dictation product; FlowMesh contains no speech engine a
 - **In the product** — FlowMesh's input is an ordinary text field. Whatever puts text there — Wispr Flow, another dictation tool, or a keyboard — produces the same plan. The command box is deliberately a plain `textarea` so dictation lands where the cursor is.
 - **Evidence** — `docs/SUBMISSION.md` lists exactly which claims are engineering facts verified by tests, and which are personal evidence the author must supply (Insights card, video). Nothing in this repo pretends to be a screenshot or a time-saving number.
 
+## No-hands control
+
+The desktop build installs two global hotkeys and a tray icon, so you can work without
+reaching for the mouse:
+
+- **Pull my last dictation** — the first accelerator that is free among
+  `Ctrl+Shift+Space`, `Ctrl+Alt+Space`, `Ctrl+Shift+D`, `Alt+Shift+V`.
+- **Approve the plan on screen** — first free among `Ctrl+Shift+Return`,
+  `Ctrl+Alt+Return`, `Ctrl+Shift+A`.
+
+A global shortcut can only belong to one program, so collisions are normal and the app
+takes the first free candidate rather than failing silently. Whatever registered is what
+the tray and the page display — the UI never advertises a key that is listening to
+nothing. Two distinct gestures, never one, so an accidental double-tap cannot run
+anything: the plan has to be on screen before approval does something.
+
+The tray keeps the app resident with no window open, with `Pull last dictation`,
+`Approve pending plan`, `Show FlowMesh`, and `Quit`.
+
 ## Security model (short version)
 
 The browser UI, and every other local process, is treated as untrusted.

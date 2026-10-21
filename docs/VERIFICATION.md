@@ -125,6 +125,24 @@ byte-identical to the repo (`sha256 e2aac2006683...`).
 bare bridge with no window and never writes `launch-url.txt`. The shipped artifact is
 built from `desktop.py` (as CI does). Re-verified after the correction.
 
+## No-hands control (Electron, v1.3.0)
+
+Probe: `npx electron scripts/probe_hotkeys.js` — runs the real runtime, a real window, the
+real `globalShortcut` / `Tray` APIs, and the same hash nudge the shell performs.
+
+| Claim | Result |
+| --- | --- |
+| `Ctrl+Shift+Space` registers on this machine | **No** — already owned by another program (this is why the app uses a candidate list) |
+| Fallback accelerator registers | **Yes** — `Ctrl+Shift+D` took effect |
+| Approve accelerator registers | **Yes** — `Ctrl+Shift+Return` |
+| Tray constructs with the app icon | **Yes** |
+| Hotkey nudge fills the box from real Wispr data | **Yes** — `"start a 15 minute focus session"` |
+| Provenance after a hotkey pull | **Yes** — `last dictated into probeapp · 22s ago · read-only, never sent anywhere` |
+| Hash cleared so a stale nudge cannot re-fire | **Yes** — `""` |
+| Approve nudge with no plan runs nothing | **Yes** — toast only |
+| Page renders the accelerators actually registered | **Yes** — hint read `Ctrl+Shift+D … Ctrl+Shift+Enter`, 6 `kbd` chips |
+| Physical keypress → action on a real keyboard | **not verified here** — the accelerator registration and the handler were both exercised, but no human pressed the key in this session |
+
 ## Packaged Windows build (Python)
 ```
 $ .venv/Scripts/pyinstaller.exe --noconfirm --onedir --windowed --name FlowMesh \

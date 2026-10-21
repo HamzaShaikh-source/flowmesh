@@ -56,6 +56,27 @@ The runtime is treated as the only authority:
 - secrets never leave the main process: `/api/settings` returns
   `jev_connected` / `ha_token_connected` booleans and the backend name only
 
+## Hotkeys and tray
+
+`globalShortcut` registers the first free accelerator from a candidate list, because a
+global shortcut is exclusive to one program and `Ctrl+Shift+Space` is commonly taken.
+The chosen accelerators are pushed into the page on `did-finish-load`, so the hint text
+and the "no plan to approve" message name the key that is actually listening.
+
+A hotkey never bypasses the gate. It sets `location.hash` on the page, which the page
+handles exactly like a button press — so the plan stays visible, the same code path runs,
+and the hash is cleared immediately so a stale one cannot re-fire.
+
+Tray: `Pull last dictation`, `Approve pending plan`, `Show FlowMesh`, `Quit`. With a tray
+present, closing the window leaves the app resident so the hotkeys keep working; quitting
+is explicit.
+
+`scripts/probe_hotkeys.js` (`npx electron scripts/probe_hotkeys.js`) proves this in a
+real Electron runtime: it registers the real accelerators, constructs a tray, sets the
+hash the way the shell does, and reads back the filled box, the provenance line, and the
+rendered hint. It found a genuine collision on this machine — `Ctrl+Shift+Space` was
+already owned by another program — which is why the fallback exists.
+
 ## Receipts
 
 Identical vocabulary to the Python runtime — `verified`, `sent`,

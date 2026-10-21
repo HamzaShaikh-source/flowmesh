@@ -115,8 +115,11 @@
         if (!res.ok) throw new Error('status_' + res.status);
         return res.json();
       })
-      .then(function (status) { setDesktopMode(status); loadWispr(); })
+      .then(function (status) { setDesktopMode(status); loadWispr(); showHotkeys(); })
       .catch(function () { setBrowserMode(); });
+    // The shell pushes the real accelerators once the page has loaded, which can be
+    // after this runs — so it also announces them, and we redraw when it does.
+    window.addEventListener('flowmesh:hotkeys', showHotkeys);
   }
 
   function setBrowserMode() {
@@ -213,6 +216,17 @@
     });
     document.addEventListener('keydown', function (event) {
       if (event.key === 'Escape' && S.plan) cancelPlan();
+    });
+    // The desktop shell's global hotkeys land here as a hash change, so a hotkey runs
+    // exactly the same code the buttons do and the plan stays visible on screen.
+    window.addEventListener('hashchange', function () {
+      var action = window.location.hash.replace('#', '');
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      if (action === 'pull') pullDictation();
+      else if (action === 'approve') {
+        if (S.plan) approvePlan();
+        else toast('No plan is on screen to approve.' + pullHint());
+      }
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-example]'), function (chip) {
       chip.addEventListener('click', function () {
@@ -758,6 +772,47 @@
         toast((data.receipt && data.receipt.detail) || 'Typed.');
       }).catch(function (err) { toast(humanError(err.message)); });
     }).catch(function (err) { toast(humanError(err.message)); });
+  }
+
+  /* The desktop shell pushes the accelerators that actually registered. Showing a key
+     that is listening to nothing would be worse than showing none. */
+  function showHotkeys() {
+    var keys = window.__flowmeshHotkeys;
+    var hint = $('hotkeyHint');
+    if (!hint) return;
+    if (!keys || (!keys.pull && !keys.approve)) { hint.textContent = ''; return; }
+    hint.replaceChildren();
+    hint.appendChild(document.createTextNode(' In the desktop app: '));
+    var written = [];
+    if (keys.pull) written.push([keys.pull, ' pulls your last dictation']);
+    if (keys.approve) written.push([keys.approve, ' approves the plan on screen']);
+    written.forEach(function (pair, index) {
+      if (index) hint.appendChild(document.createTextNode(', '));
+      label(pair[0]).forEach(function (part, i) {
+        if (i) hint.appendChild(document.createTextNode('+'));
+        var kbd = document.createElement('kbd');
+        kbd.textContent = part;
+        hint.appendChild(kbd);
+      });
+      hint.appendChild(document.createTextNode(pair[1]));
+    });
+    hint.appendChild(document.createTextNode('.'));
+  }
+
+  function label(accelerator) {
+    var mac = navigator.platform.indexOf('Mac') === 0;
+    return String(accelerator)
+      .replace('CommandOrControl', mac ? 'Cmd' : 'Ctrl')
+      .replace('Alt', mac ? 'Option' : 'Alt')
+      .replace('Return', 'Enter')
+      .split('+');
+  }
+
+  /* Point the user at the key that is actually listening, not the one we wish were. */
+  function pullHint() {
+    var keys = window.__flowmeshHotkeys;
+    if (keys && keys.pull) return ' Press ' + label(keys.pull).join('+') + ' after dictating to build one.';
+    return ' Create a plan first, then approve it.';
   }
 
   function loadSettings() {
