@@ -17,7 +17,11 @@
     caps: {},
     artifactDir: '',
     dictation: null,
+    wordsFrom: null,
   };
+
+  // The command box's own maxlength. Kept here so the trim and the counter agree.
+  var BOX_LIMIT = 1000;
 
   var URLS = {
     project_board: 'https://github.com/HamzaShaikh-source/flowmesh/issues',
@@ -168,7 +172,14 @@
   function bind() {
     $('planButton').addEventListener('click', createPlan);
     $('commandInput').addEventListener('input', function () {
-      $('charCount').textContent = this.value.length + ' / 1000';
+      $('charCount').textContent = this.value.length + ' / ' + BOX_LIMIT;
+      // Typing over a pulled dictation changes where the words came from. Without
+      // this, editing one word would leave a line claiming the text was dictated.
+      if (S.wordsFrom && S.wordsFrom.kind === 'dictation') {
+        S.wordsFrom = { kind: 'typed' };
+        S.dictation = null;
+        showProvenance();
+      }
     });
     $('commandInput').addEventListener('keydown', function (event) {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -187,7 +198,7 @@
       chip.addEventListener('click', function () {
         var text = EXAMPLES[chip.getAttribute('data-example')];
         $('commandInput').value = text;
-        $('charCount').textContent = text.length + ' / 1000';
+        $('charCount').textContent = text.length + ' / ' + BOX_LIMIT;
         $('commandInput').focus();
       });
     });
@@ -650,9 +661,13 @@
 
   function ago(seconds) {
     if (seconds === null || seconds === undefined) return 'just now';
-    if (seconds < 60) return seconds + 's ago';
-    if (seconds < 3600) return Math.round(seconds / 60) + 'm ago';
-    return Math.round(seconds / 3600) + 'h ago';
+    // Rounded: "31.541654s ago" reads like a bug, and a dictation is not that precise.
+    var value = Math.max(0, Math.round(seconds));
+    if (value < 5) return 'just now';
+    if (value < 60) return value + 's ago';
+    var minutes = Math.round(value / 60);
+    if (minutes < 60) return minutes + 'm ago';
+    return Math.round(minutes / 60) + 'h ago';
   }
 
   function pullDictation() {
@@ -661,13 +676,51 @@
         toast('No fresh dictation to use.');
         return;
       }
-      $('commandInput').value = info.text;
-      $('charCount').textContent = info.text.length + ' / 1000';
+      // The box caps at BOX_LIMIT; a longer dictation is trimmed on a sentence or word
+      // boundary and the UI says so rather than silently dropping the tail.
+      var trimmed = fitToBox(info.text, BOX_LIMIT);
+      var fit = trimmed.text;
+      var clipped = trimmed.clipped;
+      $('commandInput').value = fit;
+      $('charCount').textContent = fit.length + ' / ' + BOX_LIMIT;
       S.dictation = info.provenance || null;
+      S.wordsFrom = { kind: 'dictation', age: info.age_seconds, app: info.app, trimmed: clipped };
+      showProvenance();
       $('commandInput').focus();
-      toast('Pulled your last dictation · ' + ago(info.age_seconds) +
+      toast((clipped
+        ? 'Your last dictation was longer than the box, so it was trimmed to the last complete sentence'
+        : 'Pulled your last dictation') + ' · ' + ago(info.age_seconds) +
         (info.app ? ' · ' + info.app : '') + '. Review it, then plan.');
     }).catch(function (err) { toast(humanError(err.message)); });
+  }
+
+  /* Where the words in the box came from. A judge who typed must never be told the
+     text was dictated, so this is driven by how the box was filled, not by whether a
+     dictation happens to exist. */
+  function showProvenance() {
+    var line = $('provenanceLine');
+    if (!S.wordsFrom) { line.hidden = true; line.textContent = ''; return; }
+    var source = S.wordsFrom.kind === 'dictation'
+      ? 'From your Wispr Flow history' + (S.wordsFrom.app ? ' (last dictated into ' + S.wordsFrom.app + ')' : '')
+      : 'Typed by you';
+    var extra = S.wordsFrom.kind === 'dictation'
+      ? ' · ' + ago(S.wordsFrom.age)
+      : '';
+    line.textContent = source + extra +
+      (S.wordsFrom.trimmed ? ' · trimmed to fit the box' : '') +
+      ' · read-only, never sent anywhere';
+    line.hidden = false;
+  }
+
+  /* Fit a dictation into the box without cutting a word in half: prefer the last
+     complete sentence, then the last whole word, and say when it happened. */
+  function fitToBox(text, limit) {
+    if (text.length <= limit) return { text: text, clipped: false };
+    var head = text.slice(0, limit);
+    var stop = Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? '));
+    if (stop > limit * 0.5) return { text: head.slice(0, stop + 1), clipped: true };
+    var space = head.lastIndexOf(' ');
+    return { text: space > 0 ? head.slice(0, space) : head, clipped: true };
   }
 
   // Types an approved transcript into whatever app has focus. Deliberately not part

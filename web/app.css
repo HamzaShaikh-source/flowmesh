@@ -284,6 +284,11 @@ kbd {
 
 .chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 
+/* Where the words in the command box came from. Quiet by design: a claim about
+   provenance, so it appears only once there is something true to say. */
+.provenance { font-size: 11px; color: var(--muted); margin-left: 12px; }
+.provenance[hidden] { display: none; }
+
 /* Wispr Flow strip — desktop runtimes only. States are earned, never assumed. */
 .wispr-strip { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .wispr-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
