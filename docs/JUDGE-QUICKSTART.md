@@ -1,5 +1,11 @@
 # Judge quick-start (2 minutes, nothing to install)
 
+**The flagship integration needs the desktop build.** FlowMesh reads your own Wispr
+Flow history — hold your Wispr key, speak, press **Use my last dictation**, and the
+sentence you just dictated becomes the plan. A web page cannot read your local files,
+so the browser edition shows that panel as **desktop only** and says why, instead of
+pretending. Path B below is where to watch it work.
+
 ## Path A — the hosted console (fastest)
 
 1. Open **https://flowmesh-nohands.netlify.app/** (any OS, any browser, no account).
@@ -19,9 +25,30 @@ Things the browser edition will refuse, on purpose: `desktop_only` for launching
 
 ## Path B — the desktop runtimes (real OS actions)
 
-**Electron app — Windows, macOS, Linux.** Download the artifact for your OS from the [releases page](https://github.com/HamzaShaikh-source/flowmesh/releases) and run it: `FlowMesh-1.2.0-win-x64.exe` (portable single file), `FlowMesh-1.2.0.dmg`, or `FlowMesh-1.2.0.AppImage`. The builds are unsigned, so Windows SmartScreen (*More info → Run anyway*) and macOS Gatekeeper (*right-click → Open*) will warn.
+**Electron app — Windows, macOS, Linux.** Download the artifact for your OS from the [releases page](https://github.com/HamzaShaikh-source/flowmesh/releases) and run it: `FlowMesh-1.3.0-win-x64.zip` (unzip, run `FlowMesh.exe`), `FlowMesh-1.3.0-mac-arm64.dmg` (Apple silicon), or `FlowMesh-1.3.0-linux-x86_64.AppImage` (`chmod +x`, then run). The builds are unsigned, so Windows SmartScreen (*More info → Run anyway*) and macOS Gatekeeper (*right-click → Open*) will warn.
 
 **Python app — Windows.** Download `FlowMesh-Windows.zip`, unzip, run `FlowMesh.exe`.
+
+### Watch the Wispr integration (the demo moment)
+
+1. If you do not have Wispr Flow, install it and dictate one sentence into any app so
+   there is history to read. Without it the panel says **Wispr Flow not detected** —
+   which is the honest state, not a bug.
+2. Open FlowMesh. The panel shows **connected**, the lifetime dictation count, and the
+   median dictation latency read from your own history.
+3. Hold your Wispr key and speak a command, e.g.
+
+   > Start a 25 minute research sprint. Open my board and notify my phone.
+
+4. Press **Use my last dictation**. The sentence appears in the box, with a line under
+   it saying where it came from and how old it is. Edit one character and that line
+   changes to **Typed by you**.
+5. Plan → approve → run, as in Path A.
+
+Only a dictation from the last **5 minutes** can be pulled, so dictate just before you
+try it. Press **Type into my window** to send the dictation back as keystrokes into
+whichever app has focus — that receipt says `sent`, never `verified`, because FlowMesh
+cannot read back what the other app did with it.
 
 **Any OS with Python 3.10+:**
 

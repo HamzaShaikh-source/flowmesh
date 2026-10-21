@@ -85,8 +85,47 @@ a clean extraction. The macOS and Linux artifacts come from CI runners of their 
 OS; they are **not** executed here (no such machine) — the honest limit is recorded
 in the last section.
 
-## Packaged Windows build (Python)
+## Wispr connector, verified in the packaged runtime (v1.3.0)
 
+Proved end to end against the **frozen** Windows build, not just the dev tree: launch
+`dist/FlowMesh/FlowMesh.exe --headless`, read the launch URL, then call each endpoint
+with the real session token.
+
+```
+$ curl -H "X-FlowMesh-Token: <redacted>" http://127.0.0.1:<port>/api/status
+version: 1.3.0 | mode: desktop_app | platform: win32
+
+$ curl -H "X-FlowMesh-Token: <redacted>" http://127.0.0.1:<port>/api/wispr
+state: connected | dictations: 9 | usable: 2
+read_only: True | supported_api: False
+ignored: ['audio', 'screenshot', 'axText', 'axHTML']
+stats: {"dictations": 9, "words": 7, "median_latency_ms": 1152,
+        "dictionary_entries": 8, "snippets": 4,
+        "apps": [{"app": "brave", "dictations": 2}]}
+latest: null            <- correct: nothing dictated in the last 5 minutes
+
+$ curl -H "X-FlowMesh-Token: <redacted>" http://127.0.0.1:<port>/api/wispr/dictionary
+entries: 8 | state: connected
+
+$ curl -o /dev/null -w "%{http_code}" http://127.0.0.1:<port>/api/wispr   # no token
+401
+```
+
+The UI was verified in a real browser against the dev runtime: badge `connected`, stats
+`9 dictations · 7 words · median 1152 ms`, zero console errors; a 1727-character
+dictation pulled and trimmed to 968 at a sentence boundary with the tail absent; the
+provenance line reading "From your Wispr Flow history (last dictated into synthapp) ·
+8s ago · read-only", flipping to "Typed by you" after one edit.
+
+The hosted browser edition shows the same panel as **desktop only** with the reason,
+so the integration is visible to a judge who only opens the link. Deployed `ui.js` is
+byte-identical to the repo (`sha256 e2aac2006683...`).
+
+**Build-entry correction:** an initial local rebuild froze `bridge.py`, which serves a
+bare bridge with no window and never writes `launch-url.txt`. The shipped artifact is
+built from `desktop.py` (as CI does). Re-verified after the correction.
+
+## Packaged Windows build (Python)
 ```
 $ .venv/Scripts/pyinstaller.exe --noconfirm --onedir --windowed --name FlowMesh \
     --distpath release --workpath build --add-data "web;web" --collect-all keyring desktop.py

@@ -8,10 +8,10 @@ Built for **No Hands: The Wispr Challenge** (WeMakeDevs × Wispr Flow), Builders
 
 - **Try it in the browser — no install:** https://flowmesh-nohands.netlify.app/
 - **Desktop app — download and run:** https://github.com/HamzaShaikh-source/flowmesh/releases
-  - `FlowMesh-1.2.0-win-x64.zip` — Electron app for **Windows** (unzip, run `FlowMesh.exe`; 135 MiB)
-  - `FlowMesh-1.2.0-mac-arm64.dmg` — Electron app for **Apple-silicon macOS**
-  - `FlowMesh-1.2.0-linux-x86_64.AppImage` — Electron app for **Linux x64** (`chmod +x`, then run)
-  - `FlowMesh-Windows.zip` — the smaller Windows-only Python build (12 MiB, no Node)
+  - `FlowMesh-1.3.0-win-x64.zip` — Electron app for **Windows** (unzip, run `FlowMesh.exe`; 142 MiB)
+  - `FlowMesh-1.3.0-mac-arm64.dmg` — Electron app for **Apple-silicon macOS**
+  - `FlowMesh-1.3.0-linux-x86_64.AppImage` — Electron app for **Linux x64** (`chmod +x`, then run)
+  - `FlowMesh-Windows.zip` — the smaller Windows-only Python build (13 MiB, no Node)
 - **Source:** this repository. Stdlib-only runtime, no build step for the UI.
 
 **New in this build — FlowMesh reads Wispr Flow directly.** Hold your Wispr key, speak, then press **Use my last dictation**: FlowMesh pulls that sentence out of your own Wispr Flow history, read-only, and hands it to the plan-approve-run loop. No copying, no retyping, no second app to alt-tab to. It reads a fixed allow-list of metadata columns and never touches the audio, screenshots or surrounding app text that live in the same file. If Wispr Flow is not installed, the panel says so instead of pretending. Details: [`docs/WISPR-CONNECTOR.md`](docs/WISPR-CONNECTOR.md).
@@ -72,7 +72,7 @@ Nothing is shared between the browser page and the desktop runtimes except the p
 
 **Electron app (Windows, macOS, Linux)**
 
-1. Download the artifact for your OS from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases): `FlowMesh-1.2.0-win-x64.exe` (single portable executable), `.dmg`, or `.AppImage`.
+1. Download the artifact for your OS from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases): `FlowMesh-1.3.0-win-x64.zip` (unzip, run `FlowMesh.exe`), `FlowMesh-1.3.0-mac-arm64.dmg`, or `FlowMesh-1.3.0-linux-x86_64.AppImage`.
 2. Run it. No installer, no admin, no Node install required.
 3. Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper will warn: *More info → Run anyway* on Windows, *right-click → Open* on macOS.
 4. The app opens its own window on `127.0.0.1` with a per-launch session token in the URL.
@@ -141,7 +141,7 @@ bridge.py             local runtime: token, plans, execution, run records
 flowmesh_config.py    settings + OS credential store
 desktop.py            launcher: window / browser / headless
 tests/                planner, HTTP/security, adapters, artifacts, parity
-docs/                 decision record, quickstart, architecture, security, electron, verification, submission kit
+docs/                 decision record, quickstart, architecture, security, electron, verification, Wispr connector, demo script, submission kit
 dist/                 legacy v1.0 product page, kept only because the old ChatGPT-hosted site deploys from it
 ```
 

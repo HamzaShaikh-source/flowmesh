@@ -127,6 +127,26 @@
     S.caps = { open_url: 'ready', timer: 'ready', write_note: 'download', launch_app: 'desktop_only', notify: 'desktop_only', light: 'desktop_only', jev: 'none' };
     $('consoleSub').textContent = 'You are in the browser edition. The plan, the approved links, the timer and the run record are real here. App launches, phone notifications and the lamp are performed by the desktop app — they are marked desktop only and never faked.';
     $('capNote').textContent = 'The browser cannot touch your filesystem, your apps, or your home. FlowMesh does not claim otherwise. The device rows are executed only by the local runtime, after a one-use approval, and are read back before they are called verified.';
+    paintWisprDesktopOnly();
+  }
+
+  /* The Wispr integration reads a local database, so this page cannot show it live.
+     Hiding the panel entirely would hide the flagship feature from every judge who
+     only opens the link, so it is shown with an honest desktop-only state and a
+     pointer to the build that can actually do it. */
+  function paintWisprDesktopOnly() {
+    $('wisprStrip').hidden = false;
+    var badge = $('wisprState');
+    badge.textContent = 'desktop only';
+    badge.setAttribute('data-state', 'desktop_only');
+    $('wisprDetail').textContent =
+      'This reads your own Wispr Flow history on your machine, so the browser edition cannot do it — ' +
+      'a web page has no access to your files. Download the desktop app and hold your Wispr key, speak, ' +
+      'then press "Use my last dictation": FlowMesh pulls that sentence read-only and hands it to the ' +
+      'plan → approve → run loop. Nothing here is simulated and nothing is claimed on this page.';
+    $('wisprStats').textContent = 'Read-only · no official Wispr API exists';
+    $('pullDictation').hidden = true;
+    $('typeDictation').hidden = true;
   }
 
   function setDesktopMode(status) {
