@@ -165,6 +165,7 @@ in the release notes.
 | Home Assistant phone notification against a real phone | not verified — no device or token on this machine; adapter covered by fixtures only |
 | Lamp state read-back | not verified — no Home Assistant instance |
 | TypeSafe Jev model routing | not verified — no API key; the local planner path is what ships as default |
+| Keystrokes from `POST /api/type` landing in a focused app | **not verified here** — this shell is a detached session (`GetConsoleWindow()` returned 0; a test window's `Shown` handler never fired), so there is no focused window. The `keybd_event` unicode sequence the action ships ran without error (`keystrokeCallCompleted=true`) but nothing received it. Receipts say **sent**, never verified. Only Windows re-reads `GetForegroundWindow` after typing; macOS and Linux report that they cannot confirm which window received the keystrokes |
 | macOS and Linux desktop binaries, built and run by a human | not verified here — built by CI on those runners; this machine is Windows. CI built **arm64** macOS only; an Intel-Mac build would need a `macos-13` job (the browser edition covers Intel Macs today) |
 | Code signing / notarisation | not signed — no certificates; Windows SmartScreen and macOS Gatekeeper will warn, and the docs say so |
 | The judge's browser and OS combination | cannot verify |

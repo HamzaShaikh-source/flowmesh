@@ -87,6 +87,18 @@
           <p class="hint">Dictate with Wispr Flow into this box, or type. <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to plan.</p>
           <button class="button primary" id="planButton" type="button">Create plan <span aria-hidden="true">↗</span></button>
         </div>
+        <div class="wispr-strip" id="wisprStrip" hidden>
+          <div class="wispr-head">
+            <span class="mono quiet">WISPR FLOW</span>
+            <span class="mono wispr-state" id="wisprState" data-state="detecting">checking</span>
+          </div>
+          <p class="wispr-detail" id="wisprDetail"></p>
+          <div class="wispr-actions">
+            <button class="button ghost" id="pullDictation" type="button" hidden>Use my last dictation</button>
+            <button class="button ghost" id="typeDictation" type="button" hidden>Type it into my focused app</button>
+            <span class="mono quiet" id="wisprStats"></span>
+          </div>
+        </div>
         <div class="chips" role="group" aria-label="Example commands">
           <span class="mono quiet">TRY</span>
           <button type="button" class="chip" data-example="meeting">Meeting reset</button>

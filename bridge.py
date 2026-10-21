@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 
 from flowmesh_config import VERSION, public_settings, save, secret, settings
 from planner import FORBIDDEN, WORKFLOWS, actions_for, command_is_usable, local_route, other_intents
+import wispr_source
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 WEB = ROOT / "web"
@@ -40,6 +41,13 @@ TIMER_LOCK = threading.Lock()
 ACTIVE_TIMER: threading.Timer | None = None
 TIMER_END: float | None = None
 SESSION_TOKEN = secrets.token_urlsafe(24)
+
+# Dictations that have already been turned into an executed plan. Keyed by Wispr's
+# own transcript id, so a second hotkey press inside the same sentence cannot execute
+# the same intent twice — the guard is the id, not a timer.
+WISPR_HANDLED: dict[str, str] = {}
+WISPR_LOCK = threading.Lock()
+WISPR_MAX_AGE_DEFAULT = 300
 
 ALLOWED_URLS = {
     "project_board": ("board_url", "https://github.com/HamzaShaikh-source/flowmesh/issues"),
@@ -74,6 +82,77 @@ def app_command(target: str) -> list[str] | None:
         if found:
             return [found]
     return None
+
+
+MAX_TYPED_CHARS = 2000
+# Whether the delivery path can afterwards prove which window received the keystrokes.
+_FOCUS_CHECKED = True
+_FOCUS_UNCHECKED = False
+
+
+def _type_windows(text: str) -> bool:
+    """Synthesise the text as Unicode keystrokes via keybd_event (no clipboard)."""
+    import ctypes
+
+    KEYEVENTF_UNICODE = 0x0004
+    KEYEVENTF_KEYUP = 0x0002
+    user32 = ctypes.windll.user32
+    target = user32.GetForegroundWindow()
+    units = text.encode("utf-16-le")
+    for index in range(0, len(units), 2):
+        code_unit = int.from_bytes(units[index:index + 2], "little")
+        # wVk is unused when KEYEVENTF_UNICODE is set: the scan code carries the
+        # UTF-16 code unit, which is what makes this path work for non-ASCII too.
+        user32.keybd_event(0, code_unit, KEYEVENTF_UNICODE, 0)
+        user32.keybd_event(0, code_unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, 0)
+    # If focus moved mid-typing the text went somewhere else; say so instead of
+    # claiming a clean send.
+    return user32.GetForegroundWindow() == target
+
+
+def _type_macos(text: str) -> bool:
+    """One AppleScript call for the whole string — a per-character call takes minutes."""
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'tell application "System Events" to keystroke "{escaped}"'
+    return subprocess.run(["osascript", "-e", script], capture_output=True).returncode == 0
+
+
+def _type_linux(text: str) -> bool:
+    """xdotool on X11, wtype on Wayland. Neither is assumed to exist."""
+    tool = shutil.which("xdotool") or shutil.which("wtype")
+    if tool is None:
+        return False
+    if os.path.basename(tool) == "xdotool":
+        command = [tool, "type", "--clearmodifiers", "--", text]
+    else:
+        command = [tool, text]
+    return subprocess.run(command, capture_output=True).returncode == 0
+
+
+def type_text(text: str) -> bool:
+    """Send `text` as keystrokes to whatever window currently has focus.
+
+    This is the only action in FlowMesh that synthesises input, so it is deliberately
+    narrow: the caller supplies text and nothing else, the endpoint caps it at
+    MAX_TYPED_CHARS, the delivery tool is chosen here rather than accepted from the
+    client, and no shell is involved. It types into the focused window — normally the
+    window the sentence was just dictated into — and the receipt reports that, not
+    more than that.
+    """
+    if not isinstance(text, str) or not text.strip() or len(text) > MAX_TYPED_CHARS:
+        return False
+    if "\x00" in text:
+        return False
+    try:
+        if os.name == "nt":
+            # Only this platform re-reads the foreground window, so only this platform
+            # can claim focus was preserved.
+            return _type_windows(text), _FOCUS_CHECKED
+        if sys.platform == "darwin":
+            return _type_macos(text), _FOCUS_UNCHECKED
+        return _type_linux(text), _FOCUS_UNCHECKED
+    except Exception:
+        return False, _FOCUS_UNCHECKED
 
 
 def artifact_dir() -> Path:
@@ -131,8 +210,13 @@ def jev_route(command: str, options: list[str]) -> dict:
         return {"route": None, "source": "jev_unavailable", "error": type(exc).__name__}
 
 
-def prepare_plan(command: object) -> dict | None:
-    """Build and retain one short-lived plan for explicit later approval."""
+def prepare_plan(command: object, dictation: dict | None = None) -> dict | None:
+    """Build and retain one short-lived plan for explicit later approval.
+
+    `dictation` is provenance, never instruction: when the words came from the user's
+    own Wispr Flow history, the plan remembers which transcript produced it so the
+    same sentence cannot be executed twice.
+    """
     if not command_is_usable(command) or FORBIDDEN.search(command.strip()):
         return None
     command = command.strip()
@@ -152,12 +236,115 @@ def prepare_plan(command: object) -> dict | None:
         "expires": time.monotonic() + PLAN_LIFETIME,
         "created": timestamp(),
     }
+    # Kept on the retained plan (never echoed to the client): the record needs the
+    # exact words, and the idempotency guard needs the transcript id.
+    payload["command"] = command
+    if dictation:
+        payload["dictation"] = dictation
     with PLAN_LOCK:
         now = time.monotonic()
         for key in [key for key, value in PLANS.items() if value["expires"] < now]:
             del PLANS[key]
         PLANS[payload["id"]] = payload
-    return {key: value for key, value in payload.items() if key != "expires"}
+    return {key: value for key, value in payload.items() if key not in {"expires", "command", "dictation"}}
+
+
+def _dictation_provenance(transcript: wispr_source.Transcript) -> dict:
+    """Where these exact words came from. Instructions travel in `command` only.
+
+    Provenance is descriptive metadata, so the plan card can show the dictation's age,
+    app and whether the user polished the text before approving.
+    """
+    return {
+        "source": "wispr_history",
+        "id": transcript.id,
+        "timestamp": transcript.timestamp,
+        "app": transcript.app,
+        "edited": transcript.source_column == "editedText",
+    }
+
+
+def wispr_overview() -> dict:
+    """Everything the UI may show about the Wispr integration — never transcript text.
+
+    The state is passed through verbatim, so a judge who uninstalls Wispr Flow sees
+    `not_found` rather than a cheerful lie.
+    """
+    status = wispr_source.status()
+    payload = {
+        "state": status["state"],
+        "path": status.get("path"),
+        "detail": status.get("detail", ""),
+        "dictations": status.get("rows", 0),
+        "usable_dictations": status.get("usable_rows", 0),
+        "newest_timestamp": status.get("newest_timestamp", ""),
+        "read_only": True,
+        "supported_api": False,
+        "ignored_columns": list(wispr_source.BLOB_COLUMNS),
+        "handled": len(WISPR_HANDLED),
+    }
+    if status["state"] == "connected":
+        summary = wispr_source.stats()
+        payload["stats"] = {
+            "dictations": summary.get("dictations", 0),
+            "words": summary.get("words", 0),
+            "corrected_words": summary.get("corrected_words", 0),
+            "avg_latency_ms": summary.get("avg_latency_ms"),
+            "median_latency_ms": summary.get("median_latency_ms"),
+            "dictionary_entries": summary.get("dictionary_entries", 0),
+            "snippets": summary.get("snippets", 0),
+            "apps": summary.get("apps", [])[:5],
+        }
+        # Metadata only — the overview never carries dictation text. The UI needs to
+        # know whether a fresh sentence is waiting, not what it says.
+        payload["freshness_seconds"] = WISPR_MAX_AGE_DEFAULT
+        fresh = wispr_source.latest(WISPR_MAX_AGE_DEFAULT)
+        payload["latest"] = (
+            {"age_seconds": fresh.age_seconds, "app": fresh.app, "num_words": fresh.num_words}
+            if fresh is not None
+            else None
+        )
+    return payload
+
+
+def wispr_latest(max_age_seconds: int = WISPR_MAX_AGE_DEFAULT) -> dict:
+    """The newest dictation that is still fresh enough to act on."""
+    max_age_seconds = max(30, min(int(max_age_seconds), 3600))
+    status = wispr_source.status()
+    if status["state"] != "connected":
+        return {
+            "state": status["state"],
+            "detail": status.get("detail", ""),
+            "freshness": wispr_source.describe_freshness(None),
+            "age_seconds": None,
+        }
+    transcript = wispr_source.latest(max_age_seconds)
+    if transcript is None:
+        return {
+            "state": "none",
+            "detail": "No usable dictation inside the freshness window.",
+            "freshness": wispr_source.describe_freshness(None),
+            "age_seconds": None,
+        }
+    with WISPR_LOCK:
+        handled_plan = WISPR_HANDLED.get(transcript.id)
+    return {
+        "state": "ready",
+        "text": transcript.text,
+        "id": transcript.id,
+        "transcript_id": transcript.id,
+        "app": transcript.app,
+        "dictated_into": transcript.app,
+        "age_seconds": transcript.age_seconds,
+        "num_words": transcript.num_words,
+        "duration": transcript.duration,
+        "latency_ms": transcript.latency_ms,
+        "source_column": transcript.source_column,
+        "freshness": wispr_source.describe_freshness(transcript),
+        "already_executed": bool(handled_plan),
+        "handled_plan": handled_plan,
+        "provenance": _dictation_provenance(transcript),
+    }
 
 
 def record_markdown(plan: dict, receipts: list[dict]) -> str:
@@ -227,6 +414,16 @@ def execute_plan(plan_id: str) -> list[dict] | None:
         plan = PLANS.pop(plan_id, None)
     if plan is None or plan["expires"] < time.monotonic():
         return None
+    dictation = plan.get("dictation") or {}
+    # Idempotency is keyed on Wispr's own transcript id, not on a timer: pressing the
+    # hotkey again inside the same sentence must not execute the same intent twice.
+    if dictation.get("transcript_id"):
+        with WISPR_LOCK:
+            if dictation["transcript_id"] in WISPR_HANDLED:
+                return None
+            WISPR_HANDLED[dictation["transcript_id"]] = plan_id
+            if len(WISPR_HANDLED) > 200:
+                WISPR_HANDLED.pop(next(iter(WISPR_HANDLED)))
     actions = plan["actions"]
     slots: list[dict | None] = [None] * len(actions)
     note_slots: list[int] = []
@@ -456,6 +653,22 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/events":
             self.send_json({"events": EVENTS[-MAX_EVENTS:]})
             return
+        if self.path == "/api/wispr":
+            self.send_json(wispr_overview())
+            return
+        if self.path == "/api/wispr/latest":
+            self.send_json(wispr_latest())
+            return
+        if self.path == "/api/wispr/dictionary":
+            # The user's own vocabulary. Counts and lengths only: the words themselves
+            # stay on this machine.
+            entries = wispr_source.dictionary()
+            self.send_json({
+                "state": wispr_source.status()["state"],
+                "entries": len(entries),
+                "phrases": [len(str(entry["phrase"] or "")) for entry in entries],
+            })
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -482,11 +695,55 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({"error": str(exc)}, 400)
             return
         if self.path == "/api/plan":
-            plan = prepare_plan(body.get("command"))
+            plan = prepare_plan(body.get("command"), dictation=body.get("dictation"))
             if plan is None:
                 self.send_json({"error": "Command is unsupported, unclear, or not allowed"}, 422)
             else:
                 self.send_json(plan)
+            return
+        if self.path == "/api/type":
+            # The client never supplies the text. It names a transcript it just read
+            # from /api/wispr/latest, and this process re-reads the row itself, so the
+            # only thing that can ever reach the keyboard is the user's own dictation.
+            if set(body) != {"transcript_id"}:
+                self.send_json({"error": "Invalid request"}, 400)
+                return
+            transcript_id = body.get("transcript_id")
+            if not isinstance(transcript_id, str) or not 0 < len(transcript_id) <= 128:
+                self.send_json({"error": "Invalid request"}, 400)
+                return
+            transcript = wispr_source.get(transcript_id)
+            if transcript is None:
+                self.send_json({"error": "That dictation is no longer in the history"}, 404)
+                return
+            with WISPR_LOCK:
+                if transcript.id in WISPR_HANDLED:
+                    self.send_json({"error": "That dictation has already been typed"}, 409)
+                    return
+                WISPR_HANDLED[transcript.id] = "typed"
+            delivered, focus_verified = type_text(transcript.text)
+            event = {
+                "at": timestamp(),
+                "action": {"kind": "type_text", "label": "Type the last dictation into the focused window",
+                           "surface": "pc", "value": len(transcript.text)},
+                "status": "sent" if delivered else "unknown",
+                "detail": (
+                    f"Sent {len(transcript.text)} characters to the window in front "
+                    f"({transcript.app or 'unknown app'}); "
+                    + (
+                        "focus was unchanged while typing"
+                        if focus_verified
+                        # macOS and Linux only learn whether the tool exited 0, so say
+                        # exactly that rather than claiming a check that never ran.
+                        else "keystrokes were handed to the OS, but this platform cannot confirm which window received them"
+                    )
+                    if delivered
+                    else "Keystrokes could not be delivered on this platform"
+                ),
+            }
+            EVENTS.append(event)
+            del EVENTS[:-MAX_EVENTS]
+            self.send_json({"result": event, "chars": len(transcript.text), "delivered": delivered})
             return
         if self.path == "/api/execute":
             plan_id = body.get("plan_id")

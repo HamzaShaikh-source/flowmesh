@@ -283,6 +283,16 @@ kbd {
 }
 
 .chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+
+/* Wispr Flow strip — desktop runtimes only. States are earned, never assumed. */
+.wispr-strip { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
+.wispr-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wispr-state { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.wispr-state[data-state="connected"] { color: var(--lime); }
+.wispr-state[data-state="locked"], .wispr-state[data-state="unsupported"] { color: var(--amber); }
+.wispr-state[data-state="not_found"], .wispr-state[data-state="no_history"] { color: var(--red); }
+.wispr-detail { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-dim); }
+.wispr-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .chip {
   font-family: var(--mono); font-size: .64rem; letter-spacing: .08em; text-transform: uppercase;
   background: transparent; color: var(--ink-dim);

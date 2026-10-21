@@ -18,13 +18,19 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const core = require('../web/core.js');
 const { VERSION, createStore } = require('./config.js');
+const wispr = require('./wispr.js');
 
 const PLAN_LIFETIME = 300;
 const MAX_EVENTS = 200;
+// Wispr connector: only a dictation this recent is actionable, and only this much of
+// one will ever be typed.
+const WISPR_MAX_AGE = 300;
+const MAX_TYPED_CHARS = 2000;
+const WISPR_HANDLED = new Map();
 const MAX_BODY = 8192;
 const ALLOWED_APPS = ['notepad', 'calculator'];
 const ALLOWED_URLS = {
@@ -183,7 +189,7 @@ function createRuntime(options = {}) {
     }
   }
 
-  async function preparePlan(rawCommand) {
+  async function preparePlan(rawCommand, dictation) {
     if (!core.commandIsUsable(rawCommand) || core.isForbidden(String(rawCommand).trim())) return null;
     const command = String(rawCommand).trim();
     const decision = await jevRoute(command, Object.keys(core.WORKFLOWS));
@@ -197,10 +203,13 @@ function createRuntime(options = {}) {
       expires: Date.now() + PLAN_LIFETIME * 1000,
       created: timestamp(),
     };
+    // Provenance only: where these exact words came from. Retained on the plan (the
+    // run record needs it) but never echoed to the client.
+    if (dictation && typeof dictation === 'object') payload.dictation = dictation;
     const now = Date.now();
     for (const [key, value] of plans) if (value.expires < now) plans.delete(key);
     plans.set(payload.id, payload);
-    const { expires, command: _ignored, ...visible } = payload;
+    const { expires, command: _ignored, dictation: _provenance, ...visible } = payload;
     return visible;
   }
 
@@ -362,6 +371,9 @@ function createRuntime(options = {}) {
     const plan = plans.get(planId);
     plans.delete(planId);
     if (!plan || plan.expires < Date.now()) return null;
+    // One dictation is typed or run once. Recorded at consumption time so a partial
+    // run still cannot be replayed.
+    if (plan.dictation && plan.dictation.id) WISPR_HANDLED.set(plan.dictation.id, plan.id);
     const actions = plan.actions;
     const slots = new Array(actions.length).fill(null);
     const noteSlots = [];
@@ -402,6 +414,161 @@ function createRuntime(options = {}) {
     if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
     void startedAll;
     return results;
+  }
+
+  /* ---------------- Wispr Flow (read-only) ----------------
+     Twin of bridge.py's connector. Same states, same refusals, same honesty: this
+     reads the user's own dictation history and executes nothing. */
+
+  function wisprOverview() {
+    const state = wispr.status();
+    const payload = {
+      state: state.state,
+      path: state.path,
+      detail: state.detail,
+      dictations: state.rows || 0,
+      usable_dictations: state.usable_rows || 0,
+      newest_timestamp: state.newest_timestamp || '',
+      read_only: true,
+      supported_api: false,
+      ignored_columns: wispr.BLOB_COLUMNS.slice(),
+      handled: WISPR_HANDLED.size,
+      freshness_seconds: WISPR_MAX_AGE,
+    };
+    if (state.state === 'connected') {
+      const summary = wispr.stats();
+      payload.stats = {
+        dictations: summary.dictations || 0,
+        words: summary.words || 0,
+        corrected_words: summary.corrected_words || 0,
+        avg_latency_ms: summary.avg_latency_ms,
+        median_latency_ms: summary.median_latency_ms,
+        dictionary_entries: summary.dictionary_entries || 0,
+        snippets: summary.snippets || 0,
+        apps: (summary.apps || []).slice(0, 5),
+      };
+      // Metadata only. The overview never carries dictation text.
+      const fresh = wispr.latest(WISPR_MAX_AGE);
+      payload.latest = fresh
+        ? { age_seconds: fresh.age_seconds, app: fresh.app, num_words: fresh.num_words }
+        : null;
+    }
+    return payload;
+  }
+
+  function wisprLatest() {
+    const state = wispr.status();
+    if (state.state !== 'connected') {
+      return {
+        state: state.state, detail: state.detail,
+        freshness: wispr.describeFreshness(null), age_seconds: null,
+      };
+    }
+    const transcript = wispr.latest(WISPR_MAX_AGE);
+    if (transcript === null) {
+      return {
+        state: 'none',
+        detail: 'No usable dictation inside the freshness window.',
+        freshness: wispr.describeFreshness(null), age_seconds: null,
+      };
+    }
+    const handledPlan = WISPR_HANDLED.get(transcript.id) || null;
+    return {
+      state: 'ready',
+      text: transcript.text,
+      id: transcript.id,
+      transcript_id: transcript.id,
+      app: transcript.app,
+      dictated_into: transcript.app,
+      age_seconds: transcript.age_seconds,
+      num_words: transcript.num_words,
+      source_column: transcript.source_column,
+      freshness: wispr.describeFreshness(transcript),
+      already_executed: Boolean(handledPlan),
+      handled_plan: handledPlan,
+      provenance: {
+        source: 'wispr_history',
+        id: transcript.id,
+        timestamp: transcript.timestamp,
+        app: transcript.app,
+        edited: transcript.source_column === 'editedText',
+      },
+    };
+  }
+
+  function wisprDictionary() {
+    // dictionary() returns a bare array, so the count is its length. Reading named
+    // fields off it would throw.
+    const entries = wispr.dictionary();
+    return {
+      state: wispr.status().state,
+      entries: entries.length,
+      phrases: entries.map((entry) => String(entry.phrase || '').length),
+    };
+  }
+
+  // Type a transcript into whatever app currently has focus. The text is re-read
+  // from the database by id, so a page can never send its own string to the keyboard.
+  function typeDictation(transcriptId) {
+    if (typeof transcriptId !== 'string' || !transcriptId.trim()) return null;
+    const transcript = wispr.get(transcriptId.trim());
+    if (transcript === null) {
+      return { error: 'That dictation is no longer in your history.', status: 409 };
+    }
+    const text = String(transcript.text || '');
+    if (!text) return { error: 'That dictation has no text to type.', status: 409 };
+    if (text.length > MAX_TYPED_CHARS) {
+      return { error: 'That dictation is too long to type (' + text.length + ' characters).', status: 409 };
+    }
+    const delivered = typeIntoFocusedApp(text);
+    if (delivered.ok) WISPR_HANDLED.set(transcript.id, 'typed');
+    return {
+      receipt: {
+        // 'sent' not 'verified': we handed keystrokes to the OS and cannot read back
+        // what the focused app did with them.
+        status: delivered.ok ? 'sent' : delivered.status,
+        detail: delivered.detail,
+        label: 'Type your last dictation into the focused app',
+        surface: 'pc',
+        characters: text.length,
+      },
+    };
+  }
+
+  function typeIntoFocusedApp(text) {
+    const helper = {
+      darwin: { cmd: 'osascript', args: ['-e', 'tell application "System Events" to keystroke (system attribute "FLOWMESH_TYPE_TEXT")'] },
+      linux: { cmd: 'xdotool', args: ['type', '--clearmodifiers', '--', text] },
+      win32: {
+        cmd: 'powershell',
+        args: ['-NoProfile', '-NonInteractive', '-Command',
+          '[void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms"); [System.Windows.Forms.SendKeys]::SendWait($env:FLOWMESH_TYPE_TEXT)'],
+      },
+    }[process.platform];
+    if (!helper) return { ok: false, status: 'not_configured', detail: 'Typing is not implemented on ' + process.platform + '.' };
+    try {
+      // The text travels in the environment, never in the command line, so nothing
+      // can be interpreted as a shell metacharacter.
+      const result = spawnSync(helper.cmd, helper.args, {
+        env: { ...process.env, FLOWMESH_TYPE_TEXT: text },
+        timeout: 10000,
+        windowsHide: true,
+      });
+      if (result.error) {
+        return { ok: false, status: 'not_configured', detail: helper.cmd + ' is not available: ' + result.error.message };
+      }
+      if (result.status !== 0) {
+        return { ok: false, status: 'failed', detail: helper.cmd + ' exited ' + result.status + '.' };
+      }
+      return {
+        ok: true,
+        status: 'sent',
+        detail: 'Sent ' + text.length + ' characters as keystrokes to the focused window via ' + helper.cmd +
+          '. The OS accepted them; FlowMesh cannot read back what the app did with them, so this is sent, not verified.',
+      };
+    } catch (error) {
+      return { ok: false, status: 'failed', detail: 'Typing failed: ' + error.message };
+    }
   }
 
   function status() {
@@ -489,6 +656,9 @@ function createRuntime(options = {}) {
       if (pathname === '/api/status') return sendJson(response, status());
       if (pathname === '/api/settings') return sendJson(response, store.publicSettings());
       if (pathname === '/api/events') return sendJson(response, { events: events.slice(-MAX_EVENTS) });
+      if (pathname === '/api/wispr') return sendJson(response, wisprOverview());
+      if (pathname === '/api/wispr/latest') return sendJson(response, wisprLatest());
+      if (pathname === '/api/wispr/dictionary') return sendJson(response, wisprDictionary());
       serveStatic(request, response, port);
       return;
     }
@@ -546,9 +716,18 @@ function createRuntime(options = {}) {
         return;
       }
       if (pathname === '/api/plan') {
-        const plan = await preparePlan(body.command);
+        const plan = await preparePlan(body.command, body.dictation);
         if (plan === null) sendJson(response, { error: 'Command is unsupported, unclear, or not allowed' }, 422);
         else sendJson(response, plan);
+        return;
+      }
+      if (pathname === '/api/type') {
+        // The client names a transcript id; the text is re-read from the database here,
+        // so this page can never send its own string to the keyboard.
+        const typed = typeDictation(body.transcript_id);
+        if (typed === null) sendJson(response, { error: 'transcript_required' }, 400);
+        else if (typed.error) sendJson(response, typed, typed.status || 409);
+        else sendJson(response, typed);
         return;
       }
       if (pathname === '/api/execute') {
@@ -610,6 +789,8 @@ module.exports = {
   timestamp,
   PLAN_LIFETIME,
   MAX_EVENTS,
+  MAX_TYPED_CHARS,
+  WISPR_MAX_AGE,
   ALLOWED_APPS,
   ALLOWED_URLS,
   CSP,

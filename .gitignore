@@ -15,3 +15,6 @@ shots/
 node_modules/
 release-electron/
 *.log
+
+# research workspace: cloned third-party repos (some GPL) + local probe output
+.research/

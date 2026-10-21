@@ -16,6 +16,7 @@
     record: null,
     caps: {},
     artifactDir: '',
+    dictation: null,
   };
 
   var URLS = {
@@ -110,7 +111,7 @@
         if (!res.ok) throw new Error('status_' + res.status);
         return res.json();
       })
-      .then(function (status) { setDesktopMode(status); })
+      .then(function (status) { setDesktopMode(status); loadWispr(); })
       .catch(function () { setBrowserMode(); });
   }
 
@@ -192,6 +193,8 @@
     });
     $('approveButton').addEventListener('click', approvePlan);
     $('cancelButton').addEventListener('click', cancelPlan);
+    $('pullDictation').addEventListener('click', pullDictation);
+    $('typeDictation').addEventListener('click', typeDictation);
     $('downloadButton').addEventListener('click', function () {
       if (!S.record) return;
       download(S.record.name, S.record.text);
@@ -217,7 +220,8 @@
     }
     if (text.length > 1000) { toast(ERRORS.command_too_long); return; }
     if (S.mode === 'desktop') {
-      api('/api/plan', { command: text }).then(function (plan) {
+      var body = S.dictation ? { command: text, dictation: S.dictation } : { command: text };
+      api('/api/plan', body).then(function (plan) {
         plan.command = text;
         showPlan(plan);
       }).catch(function (err) { handleError(err); });
@@ -566,6 +570,121 @@
         return data;
       });
     });
+  }
+
+  function get(path) {
+    return fetch(path, {
+      headers: { 'X-FlowMesh-Token': S.token },
+      cache: 'no-store',
+    }).then(function (res) {
+      return res.json().catch(function () { return { error: 'bad_response' }; }).then(function (data) {
+        if (!res.ok) throw new Error(data.error || ('http_' + res.status));
+        return data;
+      });
+    });
+  }
+
+  /* ---------------- Wispr Flow (desktop runtimes only) ----------------
+     The runtime reads the user's own Wispr Flow history read-only. Nothing here
+     executes: "Use my last dictation" only fills the box so the normal plan ->
+     approve -> run loop still applies. Transcript text never leaves the machine. */
+
+  // Exactly the states the readers can actually produce, so no raw token ever reaches
+  // the page: Python yields connected/not_found/locked/unexpected_schema, Electron adds
+  // unavailable when node:sqlite is withheld, and both add none/ready for dictations.
+  var WISPR_STATES = {
+    connected: 'connected',
+    not_found: 'Wispr Flow not detected',
+    locked: 'database busy',
+    unexpected_schema: 'unexpected database shape',
+    unavailable: 'unavailable in this runtime',
+    unsupported: 'not supported here',
+    empty: 'no dictations yet',
+  };
+
+  function loadWispr() {
+    if (S.mode !== 'desktop') return;
+    get('/api/wispr').then(paintWispr).catch(function () {
+      // A runtime too old to answer 404s here. Say nothing rather than guess.
+      $('wisprStrip').hidden = true;
+    });
+  }
+
+  function paintWispr(info) {
+    var state = info.state || 'unknown';
+    var strip = $('wisprStrip');
+    strip.hidden = false;
+    var badge = $('wisprState');
+    badge.textContent = WISPR_STATES[state] || state;
+    badge.setAttribute('data-state', state);
+
+    var detail = $('wisprDetail');
+    var stats = processStats(info.stats);
+    $('wisprStats').textContent = stats;
+    $('pullDictation').hidden = true;
+    $('typeDictation').hidden = true;
+
+    if (state !== 'connected') {
+      detail.textContent = info.detail ||
+        'FlowMesh could not read your Wispr Flow history, so nothing can be pulled. Dictate into the box instead.';
+      return;
+    }
+    detail.textContent = info.detail || 'Reading your own dictation history, read-only, on this machine.';
+    if (!info.latest) {
+      detail.textContent = 'Connected. No usable dictation from the last ' +
+        Math.round((info.freshness_seconds || 300) / 60) + ' minutes, so there is nothing fresh to plan.';
+      return;
+    }
+    $('pullDictation').hidden = false;
+    $('pullDictation').textContent = 'Use my last dictation · ' + ago(info.latest.age_seconds);
+    $('typeDictation').hidden = false;
+  }
+
+  function processStats(stats) {
+    if (!stats || !stats.dictations) return '';
+    var parts = [stats.dictations + ' dictations'];
+    if (stats.words) parts.push(stats.words + ' words');
+    if (stats.median_latency_ms) parts.push('median ' + stats.median_latency_ms + ' ms');
+    return parts.join(' · ');
+  }
+
+  function ago(seconds) {
+    if (seconds === null || seconds === undefined) return 'just now';
+    if (seconds < 60) return seconds + 's ago';
+    if (seconds < 3600) return Math.round(seconds / 60) + 'm ago';
+    return Math.round(seconds / 3600) + 'h ago';
+  }
+
+  function pullDictation() {
+    get('/api/wispr/latest').then(function (info) {
+      if (!info.text) {
+        toast('No fresh dictation to use.');
+        return;
+      }
+      $('commandInput').value = info.text;
+      $('charCount').textContent = info.text.length + ' / 1000';
+      S.dictation = info.provenance || null;
+      $('commandInput').focus();
+      toast('Pulled your last dictation · ' + ago(info.age_seconds) +
+        (info.app ? ' · ' + info.app : '') + '. Review it, then plan.');
+    }).catch(function (err) { toast(humanError(err.message)); });
+  }
+
+  // Types an approved transcript into whatever app has focus. Deliberately not part
+  // of the plan/approve flow: the text is re-read from the database by the runtime,
+  // so this page cannot send its own string to the keyboard.
+  function typeDictation() {
+    get('/api/wispr/latest').then(function (info) {
+      if (!info.id) { toast('No fresh dictation to type.'); return; }
+      var where = info.app ? 'your focused app (last used: ' + info.app + ')' : 'your focused app';
+      if (!window.confirm('Type this dictation into ' + where + '?\n\n' +
+          String(info.text || '').slice(0, 200) +
+          '\n\nThe text is read from your own Wispr Flow history and typed once. ' +
+          'Nothing is copied to the clipboard.')) return;
+      api('/api/type', { transcript_id: info.id }).then(function (data) {
+        toast((data.receipt && data.receipt.detail) || 'Typed.');
+      }).catch(function (err) { toast(humanError(err.message)); });
+    }).catch(function (err) { toast(humanError(err.message)); });
   }
 
   function loadSettings() {
