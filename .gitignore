@@ -18,3 +18,6 @@ release-electron/
 
 # research workspace: cloned third-party repos (some GPL) + local probe output
 .research/
+
+# Build outputs (the release page carries the binaries, not the repo)
+dist/
