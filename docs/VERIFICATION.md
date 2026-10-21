@@ -85,6 +85,23 @@ a clean extraction. The macOS and Linux artifacts come from CI runners of their 
 OS; they are **not** executed here (no such machine) — the honest limit is recorded
 in the last section.
 
+## Published release — v1.3.0 (built by CI from `09264a0`)
+
+All four assets were produced by CI run `39560592140` on the released SHA and uploaded
+straight from that run, so no artifact predates the code it claims to contain. Sizes are
+the published sizes; hashes are of the uploaded files.
+
+| Asset | Bytes | SHA-256 |
+| --- | --- | --- |
+| `FlowMesh-1.3.0-win-x64.exe` | 103,346,467 | `839ee250613f7d77f1f178a7a101046c6460b17620b7b5548436b1283c7b5585` |
+| `FlowMesh-1.3.0-mac-arm64.dmg` | 127,530,356 | `e442ad45ebadeb8a45aed73547c31f54412d4272f928a316782a17f538b78de8` |
+| `FlowMesh-1.3.0-linux-x86_64.AppImage` | 125,117,298 | `0a21ae56d4e4f5867f07f42c5838d080db4df37da14d2a7cb8b943aa746efa0f` |
+| `FlowMesh-Windows.zip` | 14,322,755 | `d1327e1cacc578449b84347d7f6987d60c6f874c9890f88d7ff161352051add9` |
+
+Windows Electron is a **portable single executable** (`portable` target), not a zip —
+double-click it, no installer and no extraction. macOS is **arm64 only**. All builds are
+unsigned.
+
 ## Wispr connector, verified in the packaged runtime (v1.3.0)
 
 Proved end to end against the **frozen** Windows build, not just the dev tree: launch

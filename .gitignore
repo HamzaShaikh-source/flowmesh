@@ -21,3 +21,4 @@ release-electron/
 
 # Build outputs (the release page carries the binaries, not the repo)
 dist/
+.release-*/
