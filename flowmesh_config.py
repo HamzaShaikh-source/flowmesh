@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import sys
 from pathlib import Path
@@ -34,6 +35,9 @@ FIELDS = {
     "ha_url": "FLOWMESH_HA_URL",
     "light_entity": "FLOWMESH_LIGHT_ENTITY",
     "phone_service": "FLOWMESH_PHONE_NOTIFY_SERVICE",
+    "llm_provider": "FLOWMESH_LLM_PROVIDER",
+    "llm_model": "FLOWMESH_LLM_MODEL",
+    "llm_base_url": "FLOWMESH_LLM_BASE_URL",
 }
 DEFAULTS = {
     "board_url": "https://github.com/HamzaShaikh-source/flowmesh/issues",
@@ -41,8 +45,12 @@ DEFAULTS = {
     "ha_url": "",
     "light_entity": "",
     "phone_service": "",
+    "llm_provider": "",
+    "llm_model": "",
+    "llm_base_url": "",
 }
-SECRET_ENV = {"jev_key": "TYPESAFE_API_KEY", "ha_token": "FLOWMESH_HA_TOKEN"}
+SECRET_ENV = {"jev_key": "TYPESAFE_API_KEY", "ha_token": "FLOWMESH_HA_TOKEN", "llm_key": "FLOWMESH_LLM_KEY"}
+LLM_PROVIDERS = {"", "anthropic", "openai"}
 
 
 def config_dir() -> Path:
@@ -179,6 +187,7 @@ def public_settings() -> dict:
         **settings(),
         "jev_connected": bool(secret("jev_key")),
         "ha_token_connected": bool(secret("ha_token")),
+        "llm_connected": bool(secret("llm_key")),
         "secret_backend": secret_backend(),
     }
 
@@ -195,6 +204,17 @@ def validate(values: dict) -> dict[str, str]:
             parsed = urlparse(value)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
                 raise ValueError(f"{name} must be an HTTP(S) URL without credentials")
+        if name == "llm_provider" and value not in LLM_PROVIDERS:
+            raise ValueError("Model provider must be anthropic or openai (any OpenAI-compatible endpoint)")
+        if name == "llm_model" and value and not re.fullmatch(r"[A-Za-z0-9._:/\-]{1,80}", value):
+            raise ValueError("Model name may use letters, digits and . _ : / - only")
+        if name == "llm_base_url" and value:
+            parsed = urlparse(value)
+            loopback = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+            if not parsed.netloc or parsed.username or parsed.password or not (
+                parsed.scheme == "https" or (parsed.scheme == "http" and loopback)
+            ):
+                raise ValueError("Model base URL must be https:// (http:// only for localhost) with no credentials")
         if name == "light_entity" and value and (not value.startswith("light.") or not value.replace(".", "").replace("_", "").isalnum()):
             raise ValueError("Light entity must look like light.desk_lamp")
         if name == "phone_service" and value and (not value.startswith("mobile_app_") or not value.replace("_", "").isalnum()):

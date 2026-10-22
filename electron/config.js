@@ -21,6 +21,9 @@ const FIELDS = {
   ha_url: 'FLOWMESH_HA_URL',
   light_entity: 'FLOWMESH_LIGHT_ENTITY',
   phone_service: 'FLOWMESH_PHONE_NOTIFY_SERVICE',
+  llm_provider: 'FLOWMESH_LLM_PROVIDER',
+  llm_model: 'FLOWMESH_LLM_MODEL',
+  llm_base_url: 'FLOWMESH_LLM_BASE_URL',
 };
 
 const DEFAULTS = {
@@ -29,9 +32,12 @@ const DEFAULTS = {
   ha_url: '',
   light_entity: '',
   phone_service: '',
+  llm_provider: '',
+  llm_model: '',
+  llm_base_url: '',
 };
 
-const SECRET_ENV = { jev_key: 'TYPESAFE_API_KEY', ha_token: 'FLOWMESH_HA_TOKEN' };
+const SECRET_ENV = { jev_key: 'TYPESAFE_API_KEY', ha_token: 'FLOWMESH_HA_TOKEN', llm_key: 'FLOWMESH_LLM_KEY' };
 const ACCOUNT_BLOBS = ['wispr_account', 'mcp_servers'];
 
 function configDir(env = process.env) {
@@ -107,6 +113,7 @@ function createStore({ dir = configDir(), env = process.env, cipher = null } = {
       ...settings(),
       jev_connected: Boolean(secret('jev_key')),
       ha_token_connected: Boolean(secret('ha_token')),
+      llm_connected: Boolean(secret('llm_key')),
       secret_backend: secretBackend(),
     };
   }
@@ -123,6 +130,23 @@ function createStore({ dir = configDir(), env = process.env, cipher = null } = {
         const trimmed = value.trim();
         if (trimmed && /^(board_url|docs_url|ha_url)$/.test(name) && !/^https?:\/\//i.test(trimmed)) {
           throw new Error(`${name} must start with http:// or https://`);
+        }
+        if (name === 'llm_provider' && !['', 'anthropic', 'openai'].includes(trimmed)) {
+          throw new Error('Model provider must be anthropic or openai (any OpenAI-compatible endpoint)');
+        }
+        if (trimmed && name === 'llm_model' && !/^[A-Za-z0-9._:/-]{1,80}$/.test(trimmed)) {
+          throw new Error('Model name may use letters, digits and . _ : / - only');
+        }
+        if (trimmed && name === 'llm_base_url') {
+          let ok = false;
+          try {
+            const u = new URL(trimmed);
+            const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname);
+            ok = !u.username && !u.password && (u.protocol === 'https:' || (u.protocol === 'http:' && loopback));
+          } catch {
+            ok = false;
+          }
+          if (!ok) throw new Error('Model base URL must be https:// (http:// only for localhost) with no credentials');
         }
         if (trimmed && name === 'light_entity' && !/^light\.[a-z0-9_]+$/i.test(trimmed)) {
           throw new Error('light_entity must look like light.desk');

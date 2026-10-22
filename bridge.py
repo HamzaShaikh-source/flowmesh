@@ -31,6 +31,7 @@ from planner import FORBIDDEN, WORKFLOWS, actions_for, command_is_usable, local_
 import wispr_source
 from wispr_account import ACCOUNT, WisprAccountError
 from mcp_client import McpError
+import llm_planner
 from mcp_registry import MANAGER, public_tool
 import mcp_presets
 
@@ -181,6 +182,8 @@ def capabilities() -> dict[str, str]:
         "write_note": "ready",
         "notify": "ready" if configured and settings()["phone_service"].startswith("mobile_app_") else "not_configured",
         "light": "ready" if configured and settings()["light_entity"].startswith("light.") else "not_configured",
+        "tools": "ready" if any(s.get("enabled") for s in MANAGER._servers()) else "not_configured",
+        "model": "ready" if llm_planner.configured() else "not_configured",
     }
 
 
@@ -220,7 +223,7 @@ def jev_route(command: str, options: list[str]) -> dict:
         return {"route": None, "source": "jev_unavailable", "error": type(exc).__name__}
 
 
-def prepare_plan(command: object, dictation: dict | None = None) -> dict | None:
+def prepare_plan(command: object, dictation: dict | None = None, forced_route: str | None = None) -> dict | None:
     """Build and retain one short-lived plan for explicit later approval.
 
     `dictation` is provenance, never instruction: when the words came from the user's
@@ -230,8 +233,14 @@ def prepare_plan(command: object, dictation: dict | None = None) -> dict | None:
     if not command_is_usable(command) or FORBIDDEN.search(command.strip()):
         return None
     command = command.strip()
-    decision = jev_route(command, list(WORKFLOWS))
-    route = decision["route"] if decision["source"] == "jev" else local_route(command)
+    if forced_route in WORKFLOWS:
+        # A model chose this routine; the actions below are still produced by the fixed
+        # planner, so a model can pick a routine but never shape its effects.
+        decision = {"route": forced_route, "source": "llm", "confidence": None}
+        route = forced_route
+    else:
+        decision = jev_route(command, list(WORKFLOWS))
+        route = decision["route"] if decision["source"] == "jev" else local_route(command)
     if route not in WORKFLOWS:
         return None
     payload = {
@@ -257,6 +266,43 @@ def prepare_plan(command: object, dictation: dict | None = None) -> dict | None:
             del PLANS[key]
         PLANS[payload["id"]] = payload
     return {key: value for key, value in payload.items() if key not in {"expires", "command", "dictation"}}
+
+
+def plan_command(command: object, dictation: dict | None = None, context: object = "") -> tuple[dict | None, str, int]:
+    """Plan a sentence: (plan, message, http status).
+
+    With a model configured it chooses between a routine and tool calls; its answer is
+    only a proposal and is re-validated. Without one, the deterministic rules apply
+    exactly as before. A model outage falls back to those rules and says so.
+    """
+    generic = "Command is unsupported, unclear, or not allowed"
+    if not command_is_usable(command) or FORBIDDEN.search(command.strip()):
+        return None, generic, 422
+    command = command.strip()
+    notice = ""
+    if llm_planner.configured():
+        tools = MANAGER.catalog()["tools"]
+        routines = {name: f"{title}. {text}" for name, (title, text) in WORKFLOWS.items()}
+        try:
+            decision = llm_planner.decide(command, routines, tools, context if isinstance(context, str) else "")
+        except llm_planner.LlmError as exc:
+            decision, notice = None, exc.message
+        if decision is not None:
+            if decision["kind"] == "calls":
+                try:
+                    return prepare_tool_plan(decision["calls"], command, source="llm"), "", 200
+                except ValueError as exc:
+                    return None, f"The model proposed a call FlowMesh rejected: {exc}", 422
+            if decision["kind"] == "routine":
+                plan = prepare_plan(command, dictation, forced_route=decision["routine"])
+                return (plan, "", 200) if plan else (None, generic, 422)
+            return None, decision["reply"] or generic, 422
+    plan = prepare_plan(command, dictation)
+    if plan is None:
+        return None, (f"{notice} " if notice else "") + generic, 502 if notice else 422
+    if notice:
+        plan["notice"] = f"{notice} Planned with local rules instead."
+    return plan, "", 200
 
 
 def prepare_tool_plan(calls: object, command: str = "", source: str = "builder", confidence: float | None = None,
@@ -857,11 +903,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({"error": str(exc)}, 400)
             return
         if self.path == "/api/plan":
-            plan = prepare_plan(body.get("command"), dictation=body.get("dictation"))
-            if plan is None:
-                self.send_json({"error": "Command is unsupported, unclear, or not allowed"}, 422)
-            else:
-                self.send_json(plan)
+            plan, message, status = plan_command(body.get("command"), body.get("dictation"), body.get("context", ""))
+            self.send_json(plan if plan is not None else {"error": message}, status)
             return
         if self.path.startswith("/api/mcp/"):
             self.mcp_post(body)
