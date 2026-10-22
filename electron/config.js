@@ -32,7 +32,7 @@ const DEFAULTS = {
 };
 
 const SECRET_ENV = { jev_key: 'TYPESAFE_API_KEY', ha_token: 'FLOWMESH_HA_TOKEN' };
-const ACCOUNT_BLOBS = ['wispr_account'];
+const ACCOUNT_BLOBS = ['wispr_account', 'mcp_servers'];
 
 function configDir(env = process.env) {
   if (env.FLOWMESH_CONFIG_DIR) return env.FLOWMESH_CONFIG_DIR;
