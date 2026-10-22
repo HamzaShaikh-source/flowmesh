@@ -14,6 +14,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 BRIDGE = (ROOT / "bridge.py").read_text(encoding="utf-8").replace("\r\n", "\n")
 RUNTIME = (ROOT / "electron" / "runtime.js").read_text(encoding="utf-8").replace("\r\n", "\n")
 MODULE = (ROOT / "electron" / "wispr.js").read_text(encoding="utf-8").replace("\r\n", "\n")
+ACCOUNT_PY = (ROOT / "wispr_account.py").read_text(encoding="utf-8")
+ACCOUNT_JS = (ROOT / "electron" / "wispr_account.js").read_text(encoding="utf-8")
 READER = (ROOT / "wispr_source.py").read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
@@ -31,7 +33,11 @@ def node_routes() -> set[str]:
 
 class ConnectorContractTest(unittest.TestCase):
     def test_both_runtimes_serve_the_same_connector_endpoints(self):
-        expected = {"/api/wispr", "/api/wispr/latest", "/api/wispr/dictionary", "/api/type"}
+        expected = {
+            "/api/wispr", "/api/wispr/latest", "/api/wispr/dictionary", "/api/type",
+            "/api/wispr/account", "/api/wispr/account/notes", "/api/wispr/account/connect",
+            "/api/wispr/account/poll", "/api/wispr/account/disconnect", "/api/wispr/account/note",
+        }
         self.assertEqual(python_routes(), expected, "bridge.py route set drifted")
         self.assertEqual(node_routes(), expected, "electron/runtime.js route set drifted")
 
@@ -59,6 +65,16 @@ class ConnectorContractTest(unittest.TestCase):
         overview = re.search(r"def wispr_overview\(\)(?:.|\n)*?\n\ndef ", BRIDGE).group(0)
         self.assertNotIn('"text"', overview, "the overview must not carry dictation text")
         self.assertIn("latest", overview)
+
+    def test_the_account_note_route_accepts_only_an_id_in_both_runtimes(self):
+        self.assertIn('set(body) != {"note_id"}', BRIDGE)
+        self.assertIn("!('note_id' in body)", RUNTIME)
+
+    def test_both_account_modules_refuse_history_tools_by_name(self):
+        for name, source in (("wispr_account.py", ACCOUNT_PY), ("electron/wispr_account.js", ACCOUNT_JS)):
+            self.assertIn("dictation|history|transcript", source, name)
+            self.assertIn("search_scratchpad_notes", source, name)
+            self.assertIn("get_scratchpad_note", source, name)
 
     def test_the_type_path_reads_its_text_from_the_database(self):
         # POST /api/type may not accept caller-supplied text, in either runtime.

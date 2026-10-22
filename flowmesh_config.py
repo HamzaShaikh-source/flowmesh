@@ -96,6 +96,72 @@ def secret(name: str) -> str:
     return stored or os.environ.get(SECRET_ENV[name], "")
 
 
+ACCOUNT_BLOBS = {"wispr_account"}
+
+
+def load_blob(name: str) -> dict:
+    """A small JSON credential (OAuth client id + refresh token), or {}.
+
+    Kept apart from `secret()` because these are structured, written by the app
+    itself rather than typed into Settings, and never accepted over the HTTP API.
+    """
+    if name not in ACCOUNT_BLOBS:
+        return {}
+    raw = ""
+    if keyring is not None:
+        try:
+            raw = keyring.get_password(APP_NAME, name) or ""
+        except (KeyringError, RuntimeError, OSError):
+            raw = ""
+    if not raw:
+        raw = str(_read_json(_secrets_path()).get(name) or "")
+    try:
+        value = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def save_blob(name: str, value: dict) -> None:
+    if name not in ACCOUNT_BLOBS:
+        raise ValueError("Unknown credential")
+    encoded = json.dumps(value)
+    if keyring is not None:
+        try:
+            keyring.set_password(APP_NAME, name, encoded)
+            _drop_file_blob(name)
+            return
+        except (KeyringError, RuntimeError, OSError):
+            pass  # e.g. Windows Credential Manager's size cap: fall through to the file
+    path = _secrets_path()
+    merged = {**_read_json(path), name: encoded}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+    try:
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
+
+
+def clear_blob(name: str) -> None:
+    if name not in ACCOUNT_BLOBS:
+        return
+    if keyring is not None:
+        try:
+            keyring.delete_password(APP_NAME, name)
+        except (KeyringError, RuntimeError, OSError):
+            pass
+    _drop_file_blob(name)
+
+
+def _drop_file_blob(name: str) -> None:
+    path = _secrets_path()
+    current = _read_json(path)
+    if name in current:
+        del current[name]
+        path.write_text(json.dumps(current, indent=2), encoding="utf-8")
+
+
 def secret_backend() -> str:
     if keyring is not None:
         try:

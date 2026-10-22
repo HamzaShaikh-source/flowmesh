@@ -29,6 +29,13 @@ from urllib.parse import urlparse
 from flowmesh_config import VERSION, public_settings, save, secret, settings
 from planner import FORBIDDEN, WORKFLOWS, actions_for, command_is_usable, local_route, other_intents
 import wispr_source
+from wispr_account import ACCOUNT, WisprAccountError
+
+# How a connector failure maps onto HTTP. 401 is deliberately absent: it means "bad
+# FlowMesh session token" everywhere else in this API, and must not also mean
+# "your Wispr sign-in lapsed".
+ACCOUNT_HTTP = {"unavailable": 502, "bad_response": 502, "expired": 409, "denied": 403,
+                "rate_limited": 429, "unsupported": 422, "empty": 422, "bad_request": 400}
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 WEB = ROOT / "web"
@@ -602,6 +609,12 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def account_call(self, action) -> None:
+        try:
+            self.send_json(action())
+        except WisprAccountError as exc:
+            self.send_json({"error": exc.message, "kind": exc.kind}, ACCOUNT_HTTP.get(exc.kind, 502))
+
     def read_json(self) -> dict | None:
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -659,6 +672,12 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/wispr/latest":
             self.send_json(wispr_latest())
             return
+        if self.path == "/api/wispr/account":
+            self.send_json(ACCOUNT.status())
+            return
+        if self.path == "/api/wispr/account/notes":
+            self.account_call(lambda: {"notes": ACCOUNT.list_notes()})
+            return
         if self.path == "/api/wispr/dictionary":
             # The user's own vocabulary. Counts and lengths only: the words themselves
             # stay on this machine.
@@ -700,6 +719,22 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({"error": "Command is unsupported, unclear, or not allowed"}, 422)
             else:
                 self.send_json(plan)
+            return
+        if self.path == "/api/wispr/account/connect":
+            self.account_call(ACCOUNT.begin)
+            return
+        if self.path == "/api/wispr/account/poll":
+            self.account_call(ACCOUNT.poll)
+            return
+        if self.path == "/api/wispr/account/disconnect":
+            self.account_call(ACCOUNT.disconnect)
+            return
+        if self.path == "/api/wispr/account/note":
+            # Only an id is accepted; the text is fetched here, never supplied.
+            if set(body) != {"note_id"}:
+                self.send_json({"error": "Invalid request"}, 400)
+                return
+            self.account_call(lambda: ACCOUNT.get_note(body.get("note_id")))
             return
         if self.path == "/api/type":
             # The client never supplies the text. It names a transcript it just read

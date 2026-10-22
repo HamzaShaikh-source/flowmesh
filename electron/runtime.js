@@ -23,6 +23,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const core = require('../web/core.js');
 const { VERSION, createStore } = require('./config.js');
 const wispr = require('./wispr.js');
+const { createAccount, WisprAccountError, ACCOUNT_HTTP } = require('./wispr_account.js');
 
 const PLAN_LIFETIME = 300;
 const MAX_EVENTS = 200;
@@ -132,9 +133,11 @@ function createRuntime(options = {}) {
     env = process.env,
     platform = process.platform,
     fetchImpl = globalThis.fetch,
+    wisprAccount = null,
   } = options;
 
   const sessionToken = crypto.randomBytes(24).toString('base64url');
+  const account = wisprAccount || createAccount({ store, version: VERSION });
   const plans = new Map();
   const events = [];
   let timer = null;
@@ -585,6 +588,18 @@ function createRuntime(options = {}) {
     };
   }
 
+  async function accountCall(response, action) {
+    try {
+      sendJson(response, await action());
+    } catch (error) {
+      if (!(error instanceof WisprAccountError)) {
+        sendJson(response, { error: 'Internal error' }, 500);
+        return;
+      }
+      sendJson(response, { error: error.userMessage, kind: error.kind }, ACCOUNT_HTTP[error.kind] || 502);
+    }
+  }
+
   function sendJson(response, payload, statusCode = 200) {
     const data = Buffer.from(JSON.stringify(payload), 'utf8');
     response.writeHead(statusCode, {
@@ -659,6 +674,10 @@ function createRuntime(options = {}) {
       if (pathname === '/api/wispr') return sendJson(response, wisprOverview());
       if (pathname === '/api/wispr/latest') return sendJson(response, wisprLatest());
       if (pathname === '/api/wispr/dictionary') return sendJson(response, wisprDictionary());
+      if (pathname === '/api/wispr/account') return sendJson(response, account.status());
+      if (pathname === '/api/wispr/account/notes') {
+        return void accountCall(response, async () => ({ notes: await account.listNotes() }));
+      }
       serveStatic(request, response, port);
       return;
     }
@@ -720,6 +739,17 @@ function createRuntime(options = {}) {
         if (plan === null) sendJson(response, { error: 'Command is unsupported, unclear, or not allowed' }, 422);
         else sendJson(response, plan);
         return;
+      }
+      if (pathname === '/api/wispr/account/connect') return void (await accountCall(response, () => account.begin()));
+      if (pathname === '/api/wispr/account/poll') return void (await accountCall(response, () => account.poll()));
+      if (pathname === '/api/wispr/account/disconnect') return void (await accountCall(response, async () => account.disconnect()));
+      if (pathname === '/api/wispr/account/note') {
+        // Only an id is accepted; the text is fetched here, never supplied.
+        if (Object.keys(body).length !== 1 || !('note_id' in body)) {
+          sendJson(response, { error: 'Invalid request' }, 400);
+          return;
+        }
+        return void (await accountCall(response, () => account.getNote(body.note_id)));
       }
       if (pathname === '/api/type') {
         // The client names a transcript id; the text is re-read from the database here,

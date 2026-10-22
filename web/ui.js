@@ -115,7 +115,7 @@
         if (!res.ok) throw new Error('status_' + res.status);
         return res.json();
       })
-      .then(function (status) { setDesktopMode(status); loadWispr(); showHotkeys(); })
+      .then(function (status) { setDesktopMode(status); loadWispr(); loadAccount(); showHotkeys(); })
       .catch(function () { setBrowserMode(); });
     // The shell pushes the real accelerators once the page has loaded, which can be
     // after this runs — so it also announces them, and we redraw when it does.
@@ -147,7 +147,7 @@
       'a web page has no access to your files. Download the desktop app and hold your Wispr key, speak, ' +
       'then press "Use my last dictation": FlowMesh pulls that sentence read-only and hands it to the ' +
       'plan → approve → run loop. Nothing here is simulated and nothing is claimed on this page.';
-    $('wisprStats').textContent = 'Read-only local database · Wispr also ships an official MCP for notes';
+    $('wisprStats').textContent = 'Local history, read-only · Scratchpad notes through Wispr’s official sign-in (desktop app)';
     $('pullDictation').hidden = true;
     $('typeDictation').hidden = true;
     /* The clip is a real capture of this connector against a real database, recorded from
@@ -203,7 +203,7 @@
       $('charCount').textContent = this.value.length + ' / ' + BOX_LIMIT;
       // Typing over a pulled dictation changes where the words came from. Without
       // this, editing one word would leave a line claiming the text was dictated.
-      if (S.wordsFrom && S.wordsFrom.kind === 'dictation') {
+      if (S.wordsFrom && (S.wordsFrom.kind === 'dictation' || S.wordsFrom.kind === 'note')) {
         S.wordsFrom = { kind: 'typed' };
         S.dictation = null;
         showProvenance();
@@ -244,6 +244,9 @@
     $('approveButton').addEventListener('click', approvePlan);
     $('cancelButton').addEventListener('click', cancelPlan);
     $('pullDictation').addEventListener('click', pullDictation);
+    $('accountConnect').addEventListener('click', connectAccount);
+    $('accountBrowse').addEventListener('click', browseNotes);
+    $('accountDisconnect').addEventListener('click', disconnectAccount);
     $('typeDictation').addEventListener('click', typeDictation);
     $('downloadButton').addEventListener('click', function () {
       if (!S.record) return;
@@ -690,6 +693,127 @@
     $('typeDictation').hidden = false;
   }
 
+  /* ---------------- Wispr account: Scratchpad notes (desktop runtimes only) ----------------
+     The supported route: the person signs in on Wispr's own page with a short code, and
+     FlowMesh reads Scratchpad notes over Wispr's official MCP. A note only fills the
+     command box. Its text is untrusted, so it is written with textContent and goes
+     through the same plan -> approve -> run loop as anything typed. */
+
+  var ACCOUNT_STATES = {
+    disconnected: 'not connected',
+    pending: 'waiting for you',
+    connected: 'connected',
+    expired: 'code expired',
+    denied: 'declined',
+  };
+  var accountTimer = null;
+
+  // The runtime answers connector failures in plain sentences; show those as they are.
+  function accountError(err) {
+    return /\s/.test(err.message) ? err.message : humanError(err.message);
+  }
+
+  function loadAccount() {
+    if (S.mode !== 'desktop') return;
+    get('/api/wispr/account').then(function (info) {
+      paintAccount(info);
+      if (info.state === 'pending') schedulePoll(info.interval);
+    }).catch(function () { $('accountStrip').hidden = true; });
+  }
+
+  function paintAccount(info) {
+    var state = info.state || 'disconnected';
+    $('accountStrip').hidden = false;
+    var badge = $('accountState');
+    badge.textContent = ACCOUNT_STATES[state] || state;
+    badge.setAttribute('data-state', state);
+    $('accountDetail').textContent = info.detail ||
+      'Sign in with a short code on Wispr’s own page to read your Scratchpad notes. FlowMesh never sees your password.';
+    var pending = state === 'pending' && info.user_code;
+    $('deviceCode').hidden = !pending;
+    if (pending) {
+      $('deviceCodeValue').textContent = info.user_code;
+      // Only an https link is ever offered; the runtime has already enforced it.
+      var link = $('deviceCodeLink');
+      var target = info.verification_uri_complete || info.verification_uri || '';
+      if (/^https:\/\//i.test(target)) link.setAttribute('href', target);
+    }
+    $('accountConnect').hidden = state === 'connected' || Boolean(pending);
+    $('accountConnect').textContent = state === 'disconnected' ? 'Connect Wispr account' : 'Try again';
+    $('accountBrowse').hidden = state !== 'connected';
+    $('accountDisconnect').hidden = state !== 'connected';
+    if (state !== 'connected') { $('noteList').hidden = true; $('noteList').replaceChildren(); }
+  }
+
+  function connectAccount() {
+    api('/api/wispr/account/connect', {}).then(function (info) {
+      paintAccount(info);
+      schedulePoll(info.interval);
+    }).catch(function (err) { toast(accountError(err)); });
+  }
+
+  function schedulePoll(seconds) {
+    clearTimeout(accountTimer);
+    accountTimer = setTimeout(pollAccount, Math.max(1, seconds || 5) * 1000);
+  }
+
+  function pollAccount() {
+    api('/api/wispr/account/poll', {}).then(function (info) {
+      paintAccount(info);
+      if (info.state === 'pending') schedulePoll(info.interval);
+      else if (info.state === 'connected') toast('Wispr account connected. Browse your Scratchpad notes.');
+    }).catch(function (err) {
+      paintAccount({ state: 'disconnected' });
+      toast(accountError(err));
+    });
+  }
+
+  function disconnectAccount() {
+    clearTimeout(accountTimer);
+    api('/api/wispr/account/disconnect', {}).then(function (info) {
+      paintAccount(info);
+      toast(info.detail);
+    }).catch(function (err) { toast(accountError(err)); });
+  }
+
+  function browseNotes() {
+    get('/api/wispr/account/notes').then(function (data) {
+      var list = $('noteList');
+      list.replaceChildren();
+      list.hidden = false;
+      if (!data.notes.length) {
+        list.appendChild(el('li', 'note-empty', 'No Scratchpad notes found.'));
+        return;
+      }
+      data.notes.forEach(function (note) {
+        var item = el('li');
+        var button = el('button', 'note-item');
+        button.type = 'button';
+        button.appendChild(el('span', null, note.title));
+        if (note.modified_at) button.appendChild(el('span', 'when mono', note.modified_at.slice(0, 10)));
+        button.addEventListener('click', function () { useNote(note); });
+        item.appendChild(button);
+        list.appendChild(item);
+      });
+    }).catch(function (err) {
+      if (/expired|Connect again|Not connected/i.test(err.message)) paintAccount({ state: 'disconnected' });
+      toast(accountError(err));
+    });
+  }
+
+  function useNote(note) {
+    api('/api/wispr/account/note', { note_id: note.id }).then(function (data) {
+      var trimmed = fitToBox(data.text, BOX_LIMIT);
+      $('commandInput').value = trimmed.text;
+      $('charCount').textContent = trimmed.text.length + ' / ' + BOX_LIMIT;
+      S.dictation = null;
+      S.wordsFrom = { kind: 'note', title: note.title, trimmed: trimmed.clipped || data.truncated };
+      showProvenance();
+      $('commandInput').focus();
+      toast('Loaded “' + note.title + '”. Review it, then plan.');
+    }).catch(function (err) { toast(accountError(err)); });
+  }
+
   function processStats(stats) {
     if (!stats || !stats.dictations) return '';
     var parts = [stats.dictations + ' dictations'];
@@ -741,13 +865,17 @@
     if (!S.wordsFrom) { line.hidden = true; line.textContent = ''; return; }
     var source = S.wordsFrom.kind === 'dictation'
       ? 'From your Wispr Flow history' + (S.wordsFrom.app ? ' (last dictated into ' + S.wordsFrom.app + ')' : '')
-      : 'Typed by you';
+      : S.wordsFrom.kind === 'note'
+        ? 'From your Wispr Scratchpad note “' + S.wordsFrom.title + '”'
+        : 'Typed by you';
     var extra = S.wordsFrom.kind === 'dictation'
       ? ' · ' + ago(S.wordsFrom.age)
       : '';
     line.textContent = source + extra +
       (S.wordsFrom.trimmed ? ' · trimmed to fit the box' : '') +
-      ' · read-only, never sent anywhere';
+      (S.wordsFrom.kind === 'note'
+        ? ' · fetched over HTTPS from Wispr, not planned until you approve'
+        : ' · read-only, never sent anywhere');
     line.hidden = false;
   }
 

@@ -100,6 +100,24 @@
             <span class="mono quiet" id="wisprStats"></span>
           </div>
         </div>
+        <div class="wispr-strip account-strip" id="accountStrip" hidden>
+          <div class="wispr-head">
+            <span class="mono quiet">WISPR ACCOUNT · SCRATCHPAD</span>
+            <span class="mono wispr-state" id="accountState" data-state="disconnected">not connected</span>
+          </div>
+          <p class="wispr-detail" id="accountDetail"></p>
+          <div class="device-code" id="deviceCode" hidden>
+            <span class="mono quiet">ENTER THIS CODE ON WISPR'S PAGE</span>
+            <output class="code mono" id="deviceCodeValue" aria-live="polite"></output>
+            <a class="button ghost" id="deviceCodeLink" target="_blank" rel="noopener noreferrer" href="#">Open Wispr's page <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="wispr-actions">
+            <button class="button ghost" id="accountConnect" type="button">Connect Wispr account</button>
+            <button class="button ghost" id="accountBrowse" type="button" hidden>Browse Scratchpad notes</button>
+            <button class="button ghost" id="accountDisconnect" type="button" hidden>Disconnect</button>
+          </div>
+          <ul class="note-list" id="noteList" aria-label="Your Wispr Scratchpad notes" hidden></ul>
+        </div>
         <figure class="connector-clip" id="connectorClip" hidden>
           <figcaption class="mono quiet">
             RECORDED 21 OCT 2026 · REAL WISPR DATABASE · NOT SIMULATED

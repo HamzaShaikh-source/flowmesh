@@ -32,6 +32,7 @@ const DEFAULTS = {
 };
 
 const SECRET_ENV = { jev_key: 'TYPESAFE_API_KEY', ha_token: 'FLOWMESH_HA_TOKEN' };
+const ACCOUNT_BLOBS = ['wispr_account'];
 
 function configDir(env = process.env) {
   if (env.FLOWMESH_CONFIG_DIR) return env.FLOWMESH_CONFIG_DIR;
@@ -161,7 +162,42 @@ function createStore({ dir = configDir(), env = process.env, cipher = null } = {
     writePrivate(plainSecretsPath, `${JSON.stringify(file, null, 2)}\n`);
   }
 
-  return { dir, settings, secret, publicSettings, validate, secretBackend };
+  /**
+   * Small structured credentials (OAuth client id + refresh token) written by the app
+   * itself, never accepted over HTTP. Same cipher-then-0600-file policy as secrets.
+   */
+  function loadBlob(name) {
+    if (!ACCOUNT_BLOBS.includes(name)) return {};
+    let raw = '';
+    if (cipher && cipher.available) {
+      const blob = readJson(encryptedSecretsPath)[name];
+      if (typeof blob === 'string' && blob) {
+        try {
+          raw = cipher.decrypt(Buffer.from(blob, 'base64'));
+        } catch {
+          raw = '';
+        }
+      }
+    }
+    if (!raw) raw = String(readJson(plainSecretsPath)[name] || '');
+    try {
+      const value = raw ? JSON.parse(raw) : {};
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveBlob(name, value) {
+    if (!ACCOUNT_BLOBS.includes(name)) throw new Error('Unknown credential');
+    storeSecret(name, JSON.stringify(value));
+  }
+
+  function clearBlob(name) {
+    if (ACCOUNT_BLOBS.includes(name)) storeSecret(name, '');
+  }
+
+  return { dir, settings, secret, publicSettings, validate, secretBackend, loadBlob, saveBlob, clearBlob };
 }
 
 module.exports = { APP_NAME, VERSION, FIELDS, DEFAULTS, SECRET_ENV, configDir, createStore, readJson, writePrivate };
