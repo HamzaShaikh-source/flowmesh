@@ -48,6 +48,8 @@ Anything else is refused, out loud, with a reason — including "delete my files
 
 The browser edition is not a simulation: the plan is real, the timer is real, the tab really opens, the record is really generated and downloaded. It cannot touch your filesystem, Notepad, Home Assistant or your phone — and it says so on every such row instead of faking a success.
 
+Under the connector panel the hosted page also carries a **12-second capture of the desktop runtime reading a real Wispr Flow database** — `connected`, 9 dictations, 7 words, median 1152 ms, then the refusal when nothing is fresh. It is a recording, labelled as one, shown only where the live panel cannot exist; install the desktop build and you get the live version instead. The numbers are reproduced by [docs/EVAL.md](docs/EVAL.md).
+
 If one dictated sentence holds two jobs — *"capture the release link, and start a 20 minute research sprint"* — the plan says so out loud: **"Also heard in this sentence: Research sprint. Not part of this plan — dictate that as its own command."** Nothing is silently dropped, and nothing is silently added.
 
 ## Three runtimes, one source

@@ -232,6 +232,26 @@ The Electron packaging jobs produce real native artifacts on their own runners
 (`.dmg`, `.AppImage`, portable `.exe`). Job IDs and artifact sizes are recorded
 in the release notes.
 
+## The connector on the hosted page (21 October 2026)
+
+The browser cannot read a local SQLite file, so the hosted link used to describe the
+connector without ever showing it. `web/media/connector-live.mp4` (12.3 s, 161,545 bytes)
+is a capture of the **desktop runtime** reading the **real** database on this machine:
+
+| Check | Result |
+| --- | --- |
+| Recording source | `bridge.serve(0)` on this machine, real `flow.sqlite`, real session token |
+| Panel state during capture | `connected` |
+| Stats shown in the recording | `9 dictations · 7 words · median 1152 ms` — the same numbers `docs/EVAL.md` reads |
+| Pressing "Use my last dictation" | reports `No fresh dictation to use.` (nothing landed in the 5-minute window) |
+| Shown on the hosted page | only in `paintWisprDesktopOnly()`, so the desktop runtimes still show the live panel instead |
+| Live URL | `https://flowmesh-nohands.netlify.app/media/connector-live.mp4` → 200, `video/mp4`, 161,545 bytes |
+| Poster | `connector-live-poster.jpg` → 200, 62,913 bytes |
+
+Two console CSP violations appear on the hosted page. They come from Netlify's own
+injected HUD snippet being refused by this page's `style-src 'self'` / `script-src 'self'`
+policy — the page's own scripts are unaffected, and the CSP is doing its job.
+
 ## What is NOT verified (stated plainly)
 
 | Item | Status |
