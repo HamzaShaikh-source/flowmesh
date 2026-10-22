@@ -735,13 +735,25 @@ class Handler(SimpleHTTPRequestHandler):
         except WisprAccountError as exc:
             self.send_json({"error": exc.message, "kind": exc.kind}, ACCOUNT_HTTP.get(exc.kind, 502))
 
-    def read_json(self) -> dict | None:
+    def read_raw_body(self) -> None:
+        """Consume the request body up front, so an early 401/403/415 never leaves
+        unread bytes on the socket (which resets the client's connection mid-send)."""
+        self._raw = None
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            limit = 40_000 if self.path.startswith("/api/mcp/") else 8192
-            if not 0 < length < limit:
+        except ValueError:
+            length = -1
+        limit = 40_000 if self.path.startswith("/api/mcp/") else 8192
+        if 0 < length < limit:
+            self._raw = self.rfile.read(length)
+        elif length >= limit:
+            self.close_connection = True  # refuse to read an oversized body at all
+
+    def read_json(self) -> dict | None:
+        try:
+            if not getattr(self, "_raw", None):
                 return None
-            value = json.loads(self.rfile.read(length))
+            value = json.loads(self._raw)
             return value if isinstance(value, dict) else None
         except (ValueError, json.JSONDecodeError):
             return None
@@ -821,6 +833,7 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:
+        self.read_raw_body()
         if not self.trusted_host():
             self.send_json({"error": "Invalid host"}, 403)
             return
