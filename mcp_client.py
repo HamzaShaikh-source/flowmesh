@@ -46,6 +46,8 @@ MAX_TOOL_PAGES = 10
 LIST_TIMEOUT = 20.0
 CALL_TIMEOUT = 60.0
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# `.cmd`/`.bat` shims (npx.cmd) run through cmd.exe, which re-parses these characters.
+BATCH_UNSAFE = re.compile(r'[&|<>^%!"\r\n]')
 
 # Variables a server genuinely needs to start (npx, uvx, python, node). Everything else
 # FlowMesh's own process holds is withheld unless the person set it for that server.
@@ -119,6 +121,9 @@ class StdioTransport:
         executable = resolve_command(self._command)
         if executable is None:
             raise McpError("unavailable", f"Could not find '{self._command}' on this computer.")
+        if os.name == "nt" and executable.lower().endswith((".cmd", ".bat")):
+            if BATCH_UNSAFE.search(executable) or any(BATCH_UNSAFE.search(a) for a in self._args):
+                raise McpError("bad_config", "This server is started through cmd.exe, which cannot safely take arguments containing & | < > ^ % ! or quotes.")
         try:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self._proc = subprocess.Popen(
