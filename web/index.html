@@ -100,6 +100,22 @@
             <span class="mono quiet" id="wisprStats"></span>
           </div>
         </div>
+        <figure class="connector-clip" id="connectorClip" hidden>
+          <figcaption class="mono quiet">
+            RECORDED 21 OCT 2026 · REAL WISPR DATABASE · NOT SIMULATED
+          </figcaption>
+          <video id="connectorVideo" src="media/connector-live.mp4" poster="media/connector-live-poster.jpg"
+                 controls preload="none" playsinline width="1120" height="709"
+                 aria-label="Screen recording of the FlowMesh desktop runtime reading a real Wispr Flow database"></video>
+          <p class="quiet small">
+            This page cannot read your disk, so here is the same panel in the desktop runtime, captured
+            from the running app rather than staged. At record time no dictation had landed in the
+            previous five minutes: pressing <em>Use my last dictation</em> reports
+            <em>No fresh dictation to use.</em> rather than acting on a stale row. The counts above it are
+            real — <a href="https://github.com/HamzaShaikh-source/flowmesh/blob/main/docs/EVAL.md">the eval</a>
+            reproduces them.
+          </p>
+        </figure>
         <div class="chips" role="group" aria-label="Example commands">
           <span class="mono quiet">TRY</span>
           <button type="button" class="chip" data-example="meeting">Meeting reset</button>

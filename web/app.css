@@ -296,6 +296,14 @@ kbd {
 .wispr-state[data-state="connected"] { color: var(--lime); }
 .wispr-state[data-state="locked"], .wispr-state[data-state="unsupported"] { color: var(--amber); }
 .wispr-state[data-state="not_found"], .wispr-state[data-state="no_history"] { color: var(--red); }
+
+/* A real capture of the connector, shown only where the live panel cannot exist. */
+.connector-clip { margin: 14px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.connector-clip[hidden] { display: none; }
+.connector-clip figcaption { font-size: 10px; letter-spacing: .1em; color: var(--muted); }
+.connector-clip video { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--radius); background: #000; }
+.connector-clip .small { margin: 0; max-width: 72ch; font-size: 11px; line-height: 1.55; color: var(--muted); }
+.connector-clip a { color: var(--lime); }
 .wispr-detail { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-dim); }
 .wispr-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .chip {
