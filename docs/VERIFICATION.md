@@ -273,7 +273,7 @@ Windows 11, the author's machine, Python 3.12, Node 24 test runner.
 | Detection of the six CLIs | all six found on `PATH`; Claude Code reported `loggedIn: true` via claude.ai, Codex reported "Logged in using ChatGPT" |
 | Real Codex run through the HTTP bridge (read-only, empty throwaway repo) | plan `risk: read`; command `codex exec -s read-only -C <folder> -` with the task on stdin; receipt `returned`; git saw 0 changed files. Codex could not start PowerShell inside its Windows sandbox, so it did not answer the question: a good demonstration that `returned` is not `verified` |
 | Real Claude Code run through the browser UI (read-only) | plan, approve and the live panel worked; the run ended `failed` with Claude's own "OAuth session expired and could not be refreshed". git saw two untracked files, written by hooks in the author's own Claude setup, and the receipt lists them without claiming the agent made them |
-| Full suites | Python 334 tests OK, Node 177 tests OK (after relays, the wake word and councils; the earlier 34+15+15+7 agent tests are part of these) (includes 34 agent module, 15 Python bridge, 15 Electron runtime and 7 parity tests, all against a mock agent) |
+| Full suites | Python 334 tests OK, Node 181 tests OK (after relays, the wake word and councils; the earlier 34+15+15+7 agent tests are part of these) (includes 34 agent module, 15 Python bridge, 15 Electron runtime and 7 parity tests, all against a mock agent) |
 | Templates: Discord, Slack, Notion, Agent Switch | the Tools page fills command, arguments and the token placeholder correctly (checked in the UI); the servers themselves were **not** started |
 
 **Not verified:** an agent run that edits files with a real model; any real run of Antigravity,
@@ -304,3 +304,11 @@ Notion or Switch.
 | Real page | zoom in/set/reset changed the page zoom; mute and "set volume to 40 percent" changed the voice volume; "scroll to the receipts section" scrolled; "zoom to 130 percent" typed into the capture field took effect; a sentence beginning "zoom in on ..." and "approve the plan on screen" were not treated as pilot commands |
 | Not verified | real tab capture and real full screen (the automation pane blocks both and the pilot reported that), a real Windows system-volume change, the Electron window screenshot against a real window |
 | On-site clip | `web/media/demo.mp4`, 1280x720 H.264, 65 s, 2.6 MB, recorded from the real page in headless Edge with typed sentences standing in for dictation, a badge saying so on every frame, and real mouse clicks for the two approvals. The poster is a frame from the clip. It is **not** a recording of Wispr Flow |
+
+## The Guide page (23 October 2026)
+
+The hosted site already carried the voice harness, the page pilot and the demo clip, but nothing on screen said
+how to use them: the command list was only reachable by saying "what can I say". A Guide page, a dock button and a
+Home link now do. Checked in the real page at desktop and phone widths: nine nav items fit with no horizontal
+overflow; the commands are generated (11 groups, 38 try-it buttons, 1 note); clicking "zoom in" and "reset zoom"
+worked; a test fails if any offered phrase does nothing or could approve or delete.

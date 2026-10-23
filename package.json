@@ -1,6 +1,6 @@
 {
   "name": "flowmesh",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "private": true,
   "description": "FlowMesh — say the work, approve the plan, watch real receipts.",
   "main": "electron/main.js",
@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "serve": "electron . --server-only",
-    "test": "node --test electron/test/parity.test.js electron/test/runtime.test.js electron/test/wispr.test.js electron/test/wispr_api.test.js electron/test/wispr_account.test.js electron/test/mcp_core.test.js electron/test/mcp_runtime.test.js electron/test/agents.test.js electron/test/wake.test.js electron/test/council.test.js electron/test/runs.test.js electron/test/voice_grammar.test.js electron/test/voice_harness.test.js electron/test/pilot_core.test.js electron/test/pilot.test.js electron/test/ui_contract.test.js",
+    "test": "node --test electron/test/parity.test.js electron/test/runtime.test.js electron/test/wispr.test.js electron/test/wispr_api.test.js electron/test/wispr_account.test.js electron/test/mcp_core.test.js electron/test/mcp_runtime.test.js electron/test/agents.test.js electron/test/wake.test.js electron/test/council.test.js electron/test/runs.test.js electron/test/voice_grammar.test.js electron/test/voice_harness.test.js electron/test/pilot_core.test.js electron/test/pilot.test.js electron/test/guide.test.js electron/test/ui_contract.test.js",
     "golden": "../.venv/Scripts/python.exe scripts/export_planner_golden.py",
     "pack:dir": "electron-builder --win --dir -c.win.signAndEditExecutable=false -c.electronDist=node_modules/electron/dist",
     "pack:win": "electron-builder --win portable",

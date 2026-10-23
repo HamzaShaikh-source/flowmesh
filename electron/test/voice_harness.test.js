@@ -72,7 +72,7 @@ test('every command has a fixed shape: a type plus an item from a fixed list', (
   }
   assert.ok(Object.values(EXAMPLES).every((v) => ['meeting', 'focus', 'research', 'capture'].includes(v)));
   assert.deepEqual(Object.values(TOOLS).sort(), ['calc', 'notes_add', 'notes_clear', 'notes_list', 'timer_start']);
-  assert.ok(Object.values(PAGES).every((v) => ['home', 'flow', 'tools', 'code', 'wispr', 'history', 'settings', 'about'].includes(v)));
+  assert.ok(Object.values(PAGES).every((v) => ['home', 'flow', 'tools', 'code', 'guide', 'wispr', 'history', 'settings', 'about'].includes(v)));
 });
 
 test('nothing in the grammar can switch approval by voice on, name a path, or run a program', () => {

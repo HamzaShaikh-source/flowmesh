@@ -2,7 +2,7 @@
 
    Seven real pages share one document so a plan in progress, the voice dock and the session
    survive navigation, and the hosted static site needs no server routing. Routes are
-   `#/`, `#/flow`, `#/tools`, `#/code`, `#/wispr`, `#/history`, `#/settings`, `#/about`. The shell's global
+   `#/`, `#/flow`, `#/tools`, `#/code`, `#/guide`, `#/wispr`, `#/history`, `#/settings`, `#/about`. The shell's global
    hotkeys use the bare hashes `#pull` and `#approve`, which are actions, not routes, and are
    ignored here. Everything the runtime sends is untrusted text and is set with textContent. */
 (function () {
@@ -13,7 +13,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var el = UI.el;
 
-  var ROUTES = { home: 'Home', flow: 'Flow', tools: 'Tools', code: 'Code', wispr: 'Wispr', history: 'History', settings: 'Settings', about: 'How it works' };
+  var ROUTES = { home: 'Home', flow: 'Flow', tools: 'Tools', code: 'Code', guide: 'Guide', wispr: 'Wispr', history: 'History', settings: 'Settings', about: 'How it works' };
   var current = '';
   var pendingOpen = null;
 
