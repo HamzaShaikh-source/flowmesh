@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import agents
+import wake
 from scripts import export_agents_catalog
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -72,6 +73,29 @@ class AgentsParityTest(unittest.TestCase):
         js = node(f"require('./electron/agents.js').agentEnvironment({json.dumps(env)})")
         self.assertEqual(js, agents.agent_environment(env))
         self.assertNotIn("FLOWMESH_KEY", js)
+
+
+    def test_the_generated_wake_script_is_not_stale_and_matches(self):
+        committed = (ROOT / "electron" / "wake_script.js").read_text(encoding="utf-8")
+        self.assertEqual(committed.replace("\r\n", "\n"), export_agents_catalog.render_wake(), "run: python scripts/export_agents_catalog.py")
+        self.assertEqual(node("require('./electron/wake.js').SCRIPT"), wake.SCRIPT)
+        self.assertEqual(node("require('./electron/wake.js').WAKE_PHRASES"), wake.WAKE_PHRASES)
+
+    def test_the_shortcut_grammar_agrees_on_every_case(self):
+        cases = ["ctrl+alt+space", "Ctrl+Win+W", "alt+f9", "shift+7", "", "space", "w", "ctrl", "ctrl+ctrl+w", "ctrl+alt+shift+win+w",
+                 "ctrl+f13", "ctrl+escape", "ctrl+;", "ctrl+alt+", "ctrl++w", "ctrl+w+x", "win+tab", "ctrl+f12", "control+super+enter"]
+        expected = []
+        for case in cases:
+            try:
+                expected.append(wake.parse_combo(case))
+            except ValueError:
+                expected.append(None)
+        got = node(f"{json.dumps(cases)}.map(c => {{ try {{ return require('./electron/wake.js').parseCombo(c); }} catch (e) {{ return null; }} }})")
+        self.assertEqual(got, expected)
+
+    def test_the_wake_routes_are_the_same(self):
+        self.assertIn('"/api/wake"', BRIDGE)
+        self.assertIn("'/api/wake'", RUNTIME)
 
 
 if __name__ == "__main__":

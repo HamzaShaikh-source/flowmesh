@@ -28,8 +28,9 @@ const { McpError } = require('./mcp_client.js');
 const { createManager } = require('./mcp_registry.js');
 const { PRESETS } = require('./mcp_presets.js');
 const llm = require('./llm_planner.js');
+const { createWake } = require('./wake.js');
 const {
-  createAgents, agentPhrase, agentById, buildCommand, publicCatalog, AgentError,
+  createAgents, agentPhrase, agentById, buildCommand, publicCatalog, AgentError, withHandoff,
 } = require('./agents.js');
 
 const RUN_NAME = /^flowmesh-[A-Za-z0-9_-]{1,100}\.md$/;
@@ -206,6 +207,8 @@ function createRuntime(options = {}) {
     wisprAccount = null,
     mcpManager = null,
     agentsManager = null,
+    wakeManager = null,
+    wakeTimerMs = 3000,
     openTerminal = null,
     confirmProgram = null,
   } = options;
@@ -214,6 +217,8 @@ function createRuntime(options = {}) {
   const account = wisprAccount || createAccount({ store, version: VERSION });
   const mcp = mcpManager || createManager({ store, version: VERSION, fetchImpl });
   const agents = agentsManager || createAgents({ store, env, platform });
+  const wake = wakeManager || createWake({ store, platform });
+  const wakeEnabled = () => String(env.FLOWMESH_WAKE || '').toLowerCase() !== 'off';
   const agentsEnabled = () => String(env.FLOWMESH_AGENTS || '').toLowerCase() !== 'off';
   const plans = new Map();
   const events = [];
@@ -348,40 +353,64 @@ function createRuntime(options = {}) {
     return shown + (stdin !== null ? '   (task sent on stdin)' : '');
   }
 
-  /** A plan whose one effect is a coding agent working in a project folder. Throws AgentError.
-      The risk is the agent's permission mode, chosen by FlowMesh and never by a model. */
-  function prepareAgentPlan(agentId, workspaceId, modeId, prompt, command = '', source = 'builder') {
-    const action = agents.planAction(agentId, workspaceId, modeId, prompt);
-    const agent = agentById(agents.catalog, action.agent);
-    const mode = agent.modes.find((m) => m.id === action.mode);
-    action.about = mode.about;
-    action.command = agentPreview(agent, mode, action.workspace_path);
-    const actions = [action, {
+  /** Store a plan made of agent_run steps (plus the run record). Risk is the highest step's. */
+  function registerAgentPlan(actions, title, description, command, source, note) {
+    for (const action of actions) {
+      const agent = agentById(agents.catalog, action.agent);
+      const mode = agent.modes.find((m) => m.id === action.mode);
+      action.about = mode.about;
+      action.command = agentPreview(agent, mode, action.workspace_path);
+    }
+    const steps = [...actions, {
       kind: 'write_note', target: 'run_record', label: 'Save run record',
-      detail: "Markdown file in your FlowMesh folder, including the agent's output", surface: 'pc',
-      note: command || `(built on the Code page: ${action.prompt.slice(0, 200)})`,
+      detail: "Markdown file in your FlowMesh folder, including every agent's output", surface: 'pc',
+      note: command || note,
     }];
+    const risk = actions.some((a) => a.risk === 'danger') ? 'danger' : actions.some((a) => a.risk === 'write') ? 'write' : 'read';
     const payload = {
       id: crypto.randomBytes(24).toString('base64url'),
       route: 'agent',
-      title: 'Coding task',
-      description: `${action.agent_label} will work in ${action.workspace_path} (${mode.label.toLowerCase()}). ${mode.about}`,
+      title,
+      description,
       source,
       confidence: null,
       also: [],
-      actions,
-      risk: action.risk,
-      needs_confirm: action.risk === 'danger',
+      actions: steps,
+      risk,
+      needs_confirm: risk === 'danger',
       auto_run: false,
       expires: Date.now() + PLAN_LIFETIME * 1000,
       created: timestamp(),
-      command: command || action.prompt,
+      command: command || actions[0].prompt,
     };
     const now = Date.now();
     for (const [key, value] of plans) if (value.expires < now) plans.delete(key);
     plans.set(payload.id, payload);
     const { expires, command: _command, dictation: _dictation, ...visible } = payload;
     return visible;
+  }
+
+  /** A plan whose one effect is a coding agent working in a project folder. Throws AgentError.
+      The risk is the agent's permission mode, chosen by FlowMesh and never by a model. */
+  function prepareAgentPlan(agentId, workspaceId, modeId, prompt, command = '', source = 'builder') {
+    const action = agents.planAction(agentId, workspaceId, modeId, prompt);
+    const agent = agentById(agents.catalog, action.agent);
+    const mode = agent.modes.find((m) => m.id === action.mode);
+    const description = `${action.agent_label} will work in ${action.workspace_path} (${mode.label.toLowerCase()}). ${mode.about}`;
+    return registerAgentPlan([action], 'Coding task', description, command, source, `(built on the Code page: ${action.prompt.slice(0, 200)})`);
+  }
+
+  const RELAY_TITLES = { review: 'Work, then review', chain: 'Plan, build, review', compare: 'Compare agents' };
+
+  /** Several agents in one plan: each step is a normal, separately validated coding task, and a later step
+      receives the previous step's output as quoted, untrusted data. Throws AgentError. */
+  function prepareRelayPlan(kind, workspaceId, prompt, agentIds, modeId = 'edit', command = '', source = 'builder') {
+    const actions = agents.planRelay(kind, workspaceId, prompt, agentIds, modeId);
+    const steps = actions.map((a, i) => `${i + 1}. ${a.agent_label} (${a.role}, ${a.mode_label.toLowerCase()})`).join('; ');
+    const description = `${actions.length} agents in ${actions[0].workspace_path}: ${steps}. ${kind === 'compare'
+      ? 'Each answers on its own, read-only.'
+      : 'Each step starts only if the one before it finished cleanly, and sees its output as untrusted text.'}`;
+    return registerAgentPlan(actions, RELAY_TITLES[kind], description, command, source, `(built on the Code page: ${actions[0].prompt.slice(0, 200)})`);
   }
 
   /** Plan a sentence. With a model it chooses a routine or tool calls (a proposal, re-validated);
@@ -645,9 +674,19 @@ function createRuntime(options = {}) {
         continue;
       }
       const started = Date.now();
+      const sourceIndex = action.handoff_from;
+      let toRun = action;
+      if (Number.isInteger(sourceIndex) && sourceIndex >= 0 && sourceIndex < index) {
+        const earlier = slots[sourceIndex];
+        if (!earlier || earlier.status !== 'returned') {
+          slots[index] = { status: 'denied', detail: 'Skipped: the step before it did not finish cleanly.', duration_ms: 0 };
+          continue;
+        }
+        toRun = withHandoff(action, actions[sourceIndex].label || 'the previous step', earlier.output || '');
+      }
       let result;
       try {
-        result = await perform(action);
+        result = await perform(toRun);
       } catch (error) {
         result = { status: 'failed', detail: error.name };
       }
@@ -900,6 +939,46 @@ function createRuntime(options = {}) {
     }
   }
 
+  function wakePost(body, response) {
+    if (!wakeEnabled()) {
+      sendJson(response, { error: 'The wake word is disabled on this install (FLOWMESH_WAKE=off).', kind: 'disabled' }, 403);
+      return;
+    }
+    const allowed = ['enabled', 'acknowledged', 'summon', 'hold_s', 'test_summon'];
+    if (Object.keys(body).some((k) => !allowed.includes(k))
+      || ['enabled', 'acknowledged', 'test_summon'].some((k) => k in body && typeof body[k] !== 'boolean')) {
+      sendJson(response, { error: 'Invalid request' }, 400);
+      return;
+    }
+    try {
+      if ('summon' in body || 'hold_s' in body) {
+        wake.setConfig(Object.fromEntries(['summon', 'hold_s'].filter((k) => k in body).map((k) => [k, body[k]])));
+      }
+      if (body.test_summon) {
+        if (!wake.config().summon) {
+          sendJson(response, { error: 'Set a Wispr shortcut first.' }, 422);
+          return;
+        }
+        // Give the person three seconds to click into the window the shortcut should reach.
+        const timer = setTimeout(() => wake.summon(), wakeTimerMs);
+        if (typeof timer.unref === 'function') timer.unref();
+      }
+      if (body.enabled === true) {
+        if (body.acknowledged !== true) {
+          sendJson(response, { error: 'The wake word keeps your microphone open while it is on. Acknowledge it first.', needs_acknowledgement: true }, 428);
+          return;
+        }
+        wake.start();
+      } else if (body.enabled === false) {
+        wake.stop();
+      }
+    } catch (error) {
+      sendJson(response, { error: error.message }, 422);
+      return;
+    }
+    sendJson(response, { enabled: true, ...wake.status() });
+  }
+
   async function agentsPost(pathname, body, response) {
     if (!agentsEnabled()) {
       sendJson(response, { error: 'Coding agents are disabled on this install (FLOWMESH_AGENTS=off).', kind: 'disabled' }, 403);
@@ -928,6 +1007,12 @@ function createRuntime(options = {}) {
           return;
         }
         sendJson(response, prepareAgentPlan(body.agent, body.workspace, body.mode, body.prompt));
+      } else if (pathname === '/api/agents/relay') {
+        if (Object.keys(body).some((key) => !['kind', 'workspace', 'prompt', 'agents', 'mode'].includes(key))) {
+          sendJson(response, { error: 'Invalid request' }, 400);
+          return;
+        }
+        sendJson(response, prepareRelayPlan(body.kind, body.workspace, body.prompt, body.agents, body.mode === undefined ? 'edit' : body.mode));
       } else if (pathname === '/api/agents/signin') {
         sendJson(response, agents.openLogin(body.agent, openTerminal || undefined));
       } else if (pathname.startsWith('/api/agents/runs/') && pathname.endsWith('/cancel')) {
@@ -1062,6 +1147,7 @@ function createRuntime(options = {}) {
         return void mcp.catalog().then((catalog) => sendJson(response, catalog), () => sendJson(response, { error: 'Internal error' }, 500));
       }
       if (pathname === '/api/mcp/presets') return sendJson(response, { presets: PRESETS });
+      if (pathname === '/api/wake') return sendJson(response, { enabled: wakeEnabled(), ...wake.status() });
       if (pathname === '/api/agents') {
         return sendJson(response, {
           enabled: agentsEnabled(), catalog: publicCatalog(agents.catalog), config: agents.config(), detection: agents.detect(),
@@ -1140,6 +1226,7 @@ function createRuntime(options = {}) {
         return;
       }
       if (pathname.startsWith('/api/mcp/')) return void (await mcpPost(pathname, body, response));
+      if (pathname === '/api/wake') return void wakePost(body, response);
       if (pathname.startsWith('/api/agents/')) return void (await agentsPost(pathname, body, response));
       if (pathname === '/api/wispr/account/connect') return void (await accountCall(response, () => account.begin(callbackUrl())));
       if (pathname === '/api/wispr/account/poll') return void (await accountCall(response, () => account.poll()));
@@ -1201,6 +1288,7 @@ function createRuntime(options = {}) {
     if (timer) clearTimeout(timer);
     await mcp.closeAll();
     agents.killAllNow();
+    wake.stop();
     return new Promise((resolve) => server.close(() => resolve()));
   }
 
@@ -1220,8 +1308,10 @@ function createRuntime(options = {}) {
     mcp,
     killMcpNow: () => mcp.killAllNow(),
     agents,
-    killAgentsNow: () => agents.killAllNow(),
+    wake,
+    killAgentsNow: () => { agents.killAllNow(); wake.stop(); },
     prepareAgentPlan,
+    prepareRelayPlan,
     planCommand,
     prepareToolPlan,
   };

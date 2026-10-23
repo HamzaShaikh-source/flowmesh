@@ -14,7 +14,7 @@
 
   var A = { catalog: [], config: { workspaces: [] }, detection: { agents: {}, checking: false }, enabled: true, loaded: false };
   var polls = 0;
-  var live = { id: '', timer: null, misses: 0, pinned: true };
+  var live = { steps: [], timer: null, misses: 0, pinned: true, token: 0 };
 
   var AUTH = {
     signed_in: ['SIGNED IN', 'verified'],
@@ -201,21 +201,72 @@
     });
     if ((A.config.workspaces || []).some(function (s) { return s.id === wanted; })) spaceSelect.value = wanted;
     var ready = agents.length > 0 && (A.config.workspaces || []).length > 0;
+    $('teamPick').hidden = agents.length < 2;
+    if (agents.length < 2) $('teamKind').value = 'single';
     $('taskPlan').disabled = !ready;
     $('taskPrompt').disabled = !ready;
     $('taskPrompt').placeholder = ready ? 'Fix the failing test in tests/test_parser.py and explain what was wrong.'
       : (agents.length ? 'Add a project folder first.' : 'Install and sign in to a coding agent first.');
+    paintTeam();
+  }
+
+  var TEAM = {
+    review: { roles: ['Works', 'Reviews (read-only)'], hint: 'The second agent starts only if the first finished cleanly, and sees its output as untrusted text.' },
+    chain: { roles: ['Plans (read-only)', 'Builds', 'Reviews (read-only)'], hint: 'Each step starts only if the one before it finished cleanly, and sees its output as untrusted text.' },
+    compare: { roles: ['Answer 1', 'Answer 2', 'Answer 3'], hint: 'Every agent answers the same task read-only, one after the other. Nothing is handed over and nothing is changed.' },
+  };
+
+  function canRead(agent) { return agent.modes.some(function (m) { return m.risk === 'read'; }); }
+
+  function teamKind() { return $('teamKind').value; }
+
+  function paintTeam() {
+    var kind = teamKind();
+    var holder = $('teamAgents');
+    var previous = Array.prototype.map.call(holder.querySelectorAll('select'), function (s) { return s.value; });
+    holder.replaceChildren();
+    var team = TEAM[kind];
+    $('taskAgentLabel').hidden = Boolean(team);
+    holder.hidden = !team;
+    $('teamHint').textContent = team ? team.hint : '';
+    $('modePick').hidden = kind === 'compare';
+    $('modeLegend').textContent = team && kind !== 'compare' ? 'How much may the working agent do?' : 'How much may it do?';
+    if (!team) { paintModes(); return; }
+    var installed = installedAgents();
+    var count = kind === 'compare' ? Math.min(3, Math.max(2, installed.length)) : team.roles.length;
+    for (var i = 0; i < count; i += 1) {
+      var role = team.roles[i];
+      var readOnlyStep = kind === 'compare' || /read-only/.test(role);
+      var options = installed.filter(function (a) { return !readOnlyStep || canRead(a); });
+      var label = el('label', null, role);
+      var select = el('select');
+      select.setAttribute('data-step', String(i));
+      options.forEach(function (agent) { var o = el('option', null, agent.label); o.value = agent.id; select.appendChild(o); });
+      var want = previous[i] || (options[i % Math.max(options.length, 1)] || {}).id;
+      if (options.some(function (a) { return a.id === want; })) select.value = want;
+      else if (options[i % Math.max(options.length, 1)]) select.value = options[i % options.length].id;
+      label.appendChild(select);
+      holder.appendChild(label);
+    }
     paintModes();
+  }
+
+  function teamAgents() {
+    return Array.prototype.map.call($('teamAgents').querySelectorAll('select'), function (s) { return s.value; });
   }
 
   function paintModes() {
     var list = $('modeList');
-    var agent = A.catalog.filter(function (a) { return a.id === $('taskAgent').value; })[0];
+    var kind = teamKind();
+    var workIndex = kind === 'review' ? 0 : kind === 'chain' ? 1 : -1;
+    var agentId = workIndex >= 0 ? (teamAgents()[workIndex] || '') : $('taskAgent').value;
+    var agent = A.catalog.filter(function (a) { return a.id === agentId; })[0];
     var chosen = (document.querySelector('input[name="taskMode"]:checked') || {}).value || A.config.default_mode || 'edit';
     list.replaceChildren();
     if (!agent) return;
-    if (!agent.modes.some(function (m) { return m.id === chosen; })) chosen = agent.modes.some(function (m) { return m.id === 'edit'; }) ? 'edit' : agent.modes[0].id;
-    agent.modes.forEach(function (mode) {
+    var visible = agent.modes.filter(function (m) { return workIndex < 0 || m.risk !== 'read'; });
+    if (!visible.some(function (m) { return m.id === chosen; })) chosen = visible.some(function (m) { return m.id === 'edit'; }) ? 'edit' : visible[0].id;
+    visible.forEach(function (mode) {
       var label = el('label', 'mode-option');
       var radio = el('input');
       radio.type = 'radio';
@@ -237,15 +288,20 @@
   function createTaskPlan(event) {
     event.preventDefault();
     var mode = (document.querySelector('input[name="taskMode"]:checked') || {}).value;
+    var kind = teamKind();
     var body = { agent: $('taskAgent').value, workspace: $('taskSpace').value, mode: mode, prompt: $('taskPrompt').value };
     if (!body.prompt.trim()) { UI.toast('Describe the task first.'); return; }
+    var request;
+    if (kind === 'single') request = UI.api('/api/agents/plan', body);
+    else request = UI.api('/api/agents/relay', { kind: kind, workspace: body.workspace, prompt: body.prompt, agents: teamAgents(), mode: kind === 'compare' ? 'edit' : mode });
     var button = $('taskPlan');
     button.setAttribute('aria-busy', 'true');
-    UI.api('/api/agents/plan', body).then(function (plan) {
+    request.then(function (plan) {
       button.removeAttribute('aria-busy');
       // Remember the choice so a spoken "ask codex to ..." uses it. Never remember full access.
-      var saved = { default_agent: body.agent, default_workspace: body.workspace };
-      if (mode !== 'full') saved.default_mode = mode;
+      var saved = { default_workspace: body.workspace };
+      if (kind === 'single') saved.default_agent = body.agent;
+      if (kind === 'single' && mode !== 'full') saved.default_mode = mode;
       UI.api('/api/agents/defaults', saved).then(function (data) { A.config = data.config; }).catch(function () { /* optional */ });
       UI.showPlan(plan);
     }).catch(function (err) { button.removeAttribute('aria-busy'); UI.toast(UI.humanError(err.message)); });
@@ -253,16 +309,17 @@
 
   /* ---------------------------------------------------------------- live run */
 
-  function runIdOf(plan) {
-    var step = (plan.actions || []).filter(function (a) { return a.kind === 'agent_run'; })[0];
-    return step ? step.run_id : '';
+  function stepsOf(plan) {
+    return (plan.actions || []).filter(function (a) { return a.kind === 'agent_run'; }).map(function (a) {
+      return { id: a.run_id, label: a.agent_label + (a.role && a.role !== 'work' ? ' \u00b7 ' + a.role : ''), view: null };
+    });
   }
 
   function startLive(plan) {
-    var id = runIdOf(plan);
     stopLive();
-    if (!id) { $('liveRun').hidden = true; return; }
-    live.id = id;
+    live.steps = stepsOf(plan);
+    live.token += 1;
+    if (!live.steps.length) { $('liveRun').hidden = true; return; }
     live.misses = 0;
     live.pinned = true;
     $('liveRun').hidden = false;
@@ -281,41 +338,66 @@
   }
 
   function tick() {
-    var id = live.id;
-    if (!id) return;
-    UI.get('/api/agents/runs/' + encodeURIComponent(id)).then(function (view) {
-      if (id !== live.id) return;
-      paintLive(view);
-      if (view.status === 'running') live.timer = setTimeout(tick, 1000);
-    }).catch(function () {
-      if (id !== live.id) return;
-      live.misses += 1;
-      // The run is registered a moment after approval; give it a few seconds, then give up quietly.
-      if (live.misses < 8) live.timer = setTimeout(tick, 800);
+    var token = live.token;
+    if (!live.steps.length) return;
+    Promise.all(live.steps.map(function (step) {
+      if (step.view && step.view.status !== 'running') return Promise.resolve(step.view);
+      return UI.get('/api/agents/runs/' + encodeURIComponent(step.id)).catch(function () { return null; });
+    })).then(function (views) {
+      if (token !== live.token) return;
+      views.forEach(function (view, i) { live.steps[i].view = view; });
+      var any = views.some(Boolean);
+      var open = views.some(function (v) { return v && v.status === 'running'; });
+      // A later step has no run yet while an earlier one works; a skipped step never gets one.
+      var waiting = any && views.some(function (v) { return !v; }) && views.every(function (v) { return !v || v.status === 'done'; });
+      paintLive();
+      if (!any) live.misses += 1;
+      if (open || waiting || (!any && live.misses < 8)) live.timer = setTimeout(tick, open || waiting ? 1000 : 800);
+      else if (!open) finishLive();
     });
   }
 
-  function paintLive(view) {
+  function paintLive() {
     var out = $('liveOut');
     var atEnd = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
-    out.textContent = view.output || '';
+    var many = live.steps.length > 1;
+    var parts = [];
+    live.steps.forEach(function (step, i) {
+      var view = step.view;
+      if (many) parts.push('\u2500\u2500 step ' + (i + 1) + ' of ' + live.steps.length + ' \u00b7 ' + step.label + ' \u00b7 ' + (view ? view.status : 'waiting') + ' \u2500\u2500');
+      if (view && view.output) parts.push(view.output);
+    });
+    out.textContent = parts.join('\n');
     if (atEnd || live.pinned) out.scrollTop = out.scrollHeight;
-    $('liveRun').setAttribute('data-state', view.status);
-    var running = view.status === 'running';
-    var changed = view.changes && view.changes.observed ? ' · git saw ' + view.changes.files.filter(function (f) { return f.indexOf('committed ') !== 0; }).length + ' changed' : '';
-    $('liveMeta').textContent = (running ? 'running' : view.status) + ' · ' + view.elapsed_s + ' s' + changed;
+    var views = live.steps.map(function (s) { return s.view; }).filter(Boolean);
+    var running = views.some(function (v) { return v.status === 'running'; });
+    var elapsed = views.reduce(function (sum, v) { return sum + (v.elapsed_s || 0); }, 0);
+    var files = views.reduce(function (sum, v) {
+      return sum + (v.changes && v.changes.observed ? v.changes.files.filter(function (f) { return f.indexOf('committed ') !== 0; }).length : 0);
+    }, 0);
+    var observed = views.some(function (v) { return v.changes && v.changes.observed; });
+    $('liveRun').setAttribute('data-state', running ? 'running' : 'done');
+    $('liveMeta').textContent = (running ? 'running' : 'finished') + ' \u00b7 ' + Math.round(elapsed * 10) / 10 + ' s' + (observed ? ' \u00b7 git saw ' + files + ' changed' : '');
     $('liveCancel').hidden = !running;
-    if (!running) $('liveNote').textContent = 'Finished. The receipt below is what FlowMesh actually knows: it did not check the work.';
+  }
+
+  function finishLive() {
+    $('liveRun').setAttribute('data-state', 'done');
+    $('liveCancel').hidden = true;
+    $('liveNote').textContent = 'Finished. The receipt below is what FlowMesh actually knows: it did not check the work.';
   }
 
   function cancelLive() {
-    if (!live.id) return;
+    if (!live.steps.length) return;
     $('liveCancel').disabled = true;
-    UI.api('/api/agents/runs/' + encodeURIComponent(live.id) + '/cancel', {}).then(function () {
-      UI.toast('Stopping the agent and everything it started.');
-    }).catch(function (err) { $('liveCancel').disabled = false; UI.toast(UI.humanError(err.message)); });
+    // Only the step that is running can be stopped; the ones after it are then skipped by the runtime.
+    Promise.all(live.steps.map(function (step) {
+      return UI.api('/api/agents/runs/' + encodeURIComponent(step.id) + '/cancel', {}).then(function () { return true; }, function () { return false; });
+    })).then(function (results) {
+      if (results.some(Boolean)) UI.toast('Stopping the agent and everything it started.');
+      else $('liveCancel').disabled = false;
+    });
   }
-
   /* ---------------------------------------------------------------- palette and boot */
 
   function paletteItems() {
@@ -341,6 +423,8 @@
     $('spaceForm').addEventListener('submit', addSpace);
     $('taskForm').addEventListener('submit', createTaskPlan);
     $('taskAgent').addEventListener('change', paintModes);
+    $('teamKind').addEventListener('change', paintTeam);
+    $('teamAgents').addEventListener('change', paintModes);
     $('liveCancel').addEventListener('click', cancelLive);
     $('liveOut').addEventListener('scroll', function () {
       var out = $('liveOut');
@@ -349,7 +433,7 @@
     document.addEventListener('flowmesh:approved', function (event) { startLive(event.detail.plan); });
     document.addEventListener('flowmesh:run', function () {
       // One last read so the final lines are on screen even if the run ended between polls.
-      if (live.id) { stopLive(); tick(); }
+      if (live.steps.length) { stopLive(); tick(); }
     });
     document.addEventListener('flowmesh:mode', function () { if (window.FlowMeshRouter && window.FlowMeshRouter.current() === 'code') enter(); });
   }

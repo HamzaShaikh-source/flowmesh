@@ -33,6 +33,12 @@ def mock_catalog() -> list[dict]:
             {"id": "edit", "label": "Edit", "risk": "write", "args": ["--file", "{promptfile}"], "about": ""}]},
         {**base, "id": "ghost", "label": "Ghost", "command": "definitely-not-installed-xyz", "launcher_args": [], "base_args": [],
          "prompt_via": "stdin", "modes": [{"id": "edit", "label": "Edit", "risk": "write", "args": ["--stdin"], "about": ""}]},
+        {**base, "id": "mock2", "label": "Mock Two", "base_args": [], "prompt_via": "stdin", "modes": [
+            {"id": "plan", "label": "Plan", "risk": "read", "args": ["--stdin", "--mode", "plan"], "about": ""},
+            {"id": "edit", "label": "Edit", "risk": "write", "args": ["--stdin", "--mode", "edit"], "about": ""}]},
+        {**base, "id": "mock3", "label": "Mock Three", "base_args": [], "prompt_via": "stdin", "modes": [
+            {"id": "plan", "label": "Plan", "risk": "read", "args": ["--stdin", "--mode", "plan"], "about": ""},
+            {"id": "edit", "label": "Edit", "risk": "write", "args": ["--stdin", "--mode", "edit"], "about": ""}]},
     ]
 
 

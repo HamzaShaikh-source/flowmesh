@@ -37,7 +37,8 @@ from urllib.parse import parse_qs
 from mcp_client import McpError
 import llm_planner
 from mcp_registry import MANAGER, public_tool
-from agents import MANAGER as AGENTS, AgentError, agent_by_id, agent_phrase, public_catalog
+from wake import MANAGER as WAKE
+from agents import MANAGER as AGENTS, AgentError, agent_by_id, agent_phrase, public_catalog, with_handoff
 import mcp_presets
 
 # How a connector failure maps onto HTTP. 401 is deliberately absent: it means "bad
@@ -367,8 +368,37 @@ def plan_command(command: object, dictation: dict | None = None, context: object
     return plan, "", 200
 
 
+def wake_enabled() -> bool:
+    return os.environ.get("FLOWMESH_WAKE", "").lower() != "off"
+
+
 def agents_enabled() -> bool:
     return os.environ.get("FLOWMESH_AGENTS", "").lower() != "off"
+
+
+def register_agent_plan(actions: list[dict], title: str, description: str, command: str, source: str, note: str) -> dict:
+    """Store a plan made of agent_run steps (plus the run record). Risk is the highest step's."""
+    for action in actions:
+        agent = agent_by_id(AGENTS.catalog, action["agent"])
+        mode = next(m for m in agent["modes"] if m["id"] == action["mode"])
+        action["about"] = mode["about"]
+        action["command"] = agents_preview(agent, mode, action["workspace_path"])
+    steps = [*actions, {"kind": "write_note", "target": "run_record", "label": "Save run record",
+                        "detail": "Markdown file in your FlowMesh folder, including every agent's output", "surface": "pc",
+                        "note": command or note}]
+    risk = "danger" if any(a["risk"] == "danger" for a in actions) else "write" if any(a["risk"] == "write" for a in actions) else "read"
+    payload = {
+        "id": secrets.token_urlsafe(24), "route": "agent", "title": title, "description": description,
+        "source": source, "confidence": None, "also": [], "actions": steps, "risk": risk,
+        "needs_confirm": risk == "danger", "auto_run": False,
+        "expires": time.monotonic() + PLAN_LIFETIME, "created": timestamp(), "command": command or actions[0]["prompt"],
+    }
+    with PLAN_LOCK:
+        now = time.monotonic()
+        for key in [key for key, value in PLANS.items() if value["expires"] < now]:
+            del PLANS[key]
+        PLANS[payload["id"]] = payload
+    return {key: value for key, value in payload.items() if key not in {"expires", "command", "dictation"}}
 
 
 def prepare_agent_plan(agent_id: object, workspace_id: object, mode_id: object, prompt: object,
@@ -381,25 +411,25 @@ def prepare_agent_plan(agent_id: object, workspace_id: object, mode_id: object, 
     action = AGENTS.plan_action(agent_id, workspace_id, mode_id, prompt)
     agent = agent_by_id(AGENTS.catalog, action["agent"])
     mode = next(m for m in agent["modes"] if m["id"] == action["mode"])
-    action["about"] = mode["about"]
-    action["command"] = agents_preview(agent, mode, action["workspace_path"])
-    actions = [action, {"kind": "write_note", "target": "run_record", "label": "Save run record",
-                        "detail": "Markdown file in your FlowMesh folder, including the agent's output", "surface": "pc",
-                        "note": command or f"(built on the Code page: {action['prompt'][:200]})"}]
-    risk = action["risk"]
-    payload = {
-        "id": secrets.token_urlsafe(24), "route": "agent", "title": "Coding task",
-        "description": f"{action['agent_label']} will work in {action['workspace_path']} ({mode['label'].lower()}). {mode['about']}",
-        "source": source, "confidence": None, "also": [], "actions": actions, "risk": risk,
-        "needs_confirm": risk == "danger", "auto_run": False,
-        "expires": time.monotonic() + PLAN_LIFETIME, "created": timestamp(), "command": command or action["prompt"],
-    }
-    with PLAN_LOCK:
-        now = time.monotonic()
-        for key in [key for key, value in PLANS.items() if value["expires"] < now]:
-            del PLANS[key]
-        PLANS[payload["id"]] = payload
-    return {key: value for key, value in payload.items() if key not in {"expires", "command", "dictation"}}
+    description = f"{action['agent_label']} will work in {action['workspace_path']} ({mode['label'].lower()}). {mode['about']}"
+    return register_agent_plan([action], "Coding task", description, command, source,
+                               f"(built on the Code page: {action['prompt'][:200]})")
+
+
+RELAY_TITLES = {"review": "Work, then review", "chain": "Plan, build, review", "compare": "Compare agents"}
+
+
+def prepare_relay_plan(kind: object, workspace_id: object, prompt: object, agent_ids: object, mode_id: object = "edit",
+                       command: str = "", source: str = "builder") -> dict:
+    """Several agents in one plan: each step is a normal, separately validated coding task, and a later
+    step receives the previous step's output as quoted, untrusted data. Raises AgentError."""
+    actions = AGENTS.plan_relay(kind, workspace_id, prompt, agent_ids, mode_id)
+    steps = "; ".join(f"{i + 1}. {a['agent_label']} ({a['role']}, {a['mode_label'].lower()})" for i, a in enumerate(actions))
+    description = (f"{len(actions)} agents in {actions[0]['workspace_path']}: {steps}. "
+                   + ("Each answers on its own, read-only." if kind == "compare" else
+                      "Each step starts only if the one before it finished cleanly, and sees its output as untrusted text."))
+    return register_agent_plan(actions, RELAY_TITLES[kind], description, command, source,
+                               f"(built on the Code page: {actions[0]['prompt'][:200]})")
 
 
 def agents_preview(agent: dict, mode: dict, folder: str) -> str:
@@ -647,6 +677,13 @@ def execute_plan(plan_id: str) -> list[dict] | None:
             note_slots.append(index)
             continue
         started = time.monotonic()
+        source_index = action.get("handoff_from")
+        if isinstance(source_index, int) and 0 <= source_index < index:
+            earlier = slots[source_index]
+            if earlier is None or earlier.get("status") != "returned":
+                slots[index] = {"status": "denied", "detail": "Skipped: the step before it did not finish cleanly.", "duration_ms": 0}
+                continue
+            action = with_handoff(action, actions[source_index].get("label", "the previous step"), earlier.get("output", ""))
         try:
             result = perform(action)
         except Exception as exc:  # one adapter must not stop the rest
@@ -854,6 +891,37 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def wake_post(self, body: dict) -> None:
+        """Turn the wake word on or off, and set the Wispr shortcut it presses."""
+        if not wake_enabled():
+            self.send_json({"error": "The wake word is disabled on this install (FLOWMESH_WAKE=off).", "kind": "disabled"}, 403)
+            return
+        allowed = {"enabled", "acknowledged", "summon", "hold_s", "test_summon"}
+        if set(body) - allowed or any(key in body and not isinstance(body[key], bool) for key in ("enabled", "acknowledged", "test_summon")):
+            self.send_json({"error": "Invalid request"}, 400)
+            return
+        try:
+            if "summon" in body or "hold_s" in body:
+                WAKE.set_config({key: body[key] for key in ("summon", "hold_s") if key in body})
+            if body.get("test_summon"):
+                if not WAKE.config()["summon"]:
+                    self.send_json({"error": "Set a Wispr shortcut first."}, 422)
+                    return
+                # Give the person three seconds to click into the window the shortcut should reach.
+                threading.Timer(3.0, WAKE.summon).start()
+            if body.get("enabled") is True:
+                if body.get("acknowledged") is not True:
+                    self.send_json({"error": "The wake word keeps your microphone open while it is on. Acknowledge it first.",
+                                    "needs_acknowledgement": True}, 428)
+                    return
+                WAKE.start()
+            elif body.get("enabled") is False:
+                WAKE.stop()
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, 422)
+            return
+        self.send_json({"enabled": True, **WAKE.status()})
+
     def agents_post(self, body: dict) -> None:
         """Project folders, defaults, coding-task plans, cancel and sign-in."""
         path = self.path
@@ -881,6 +949,12 @@ class Handler(SimpleHTTPRequestHandler):
                     self.send_json({"error": "Invalid request"}, 400)
                     return
                 self.send_json(prepare_agent_plan(body.get("agent"), body.get("workspace"), body.get("mode"), body.get("prompt")))
+            elif path == "/api/agents/relay":
+                if set(body) - {"kind", "workspace", "prompt", "agents", "mode"}:
+                    self.send_json({"error": "Invalid request"}, 400)
+                    return
+                self.send_json(prepare_relay_plan(body.get("kind"), body.get("workspace"), body.get("prompt"), body.get("agents"),
+                                                  body.get("mode", "edit")))
             elif path == "/api/agents/signin":
                 self.send_json(AGENTS.open_login(body.get("agent")))
             elif path.startswith("/api/agents/runs/") and path.endswith("/cancel"):
@@ -1039,6 +1113,9 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/wispr/latest":
             self.send_json(wispr_latest())
             return
+        if self.path == "/api/wake":
+            self.send_json({"enabled": wake_enabled(), **WAKE.status()})
+            return
         if self.path == "/api/agents":
             self.send_json({"enabled": agents_enabled(), "catalog": public_catalog(AGENTS.catalog), "config": AGENTS.config(),
                             "detection": AGENTS.detect()})
@@ -1112,6 +1189,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path.startswith("/api/mcp/"):
             self.mcp_post(body)
+            return
+        if self.path == "/api/wake":
+            self.wake_post(body)
             return
         if self.path.startswith("/api/agents/"):
             self.agents_post(body)
@@ -1212,6 +1292,7 @@ class Handler(SimpleHTTPRequestHandler):
 # Stdio MCP servers are child processes; never leave them running after FlowMesh exits.
 atexit.register(MANAGER.close_all)
 atexit.register(AGENTS.close_all)
+atexit.register(WAKE.stop)
 
 
 def serve(port: int = 0) -> ThreadingHTTPServer:

@@ -22,6 +22,7 @@ Built for **No Hands: The Wispr Challenge** (WeMakeDevs × Wispr Flow), Builders
 | "Start a 25 minute research sprint, open the board, notify my phone" | a fixed routine plans every step; you approve; each step returns a receipt | Flow |
 | "Ask Codex to fix the failing test" | your installed coding agent works in a project folder you registered, in a mode you chose | Code |
 | "Post the standup summary in #team" | an MCP tool call (Discord, Slack, Notion, files, git, GitHub, a browser, your own server) shown with its exact arguments | Tools |
+| "Hey FlowMesh" (opt-in, Windows) | an offline wake word that can press your Wispr shortcut so dictation starts hands-free | Wispr |
 | Hold your Wispr key anywhere in the app | the new dictation is picked up and planned automatically | every page |
 | "Go to tools", "read it back", "cancel" | short whole-sentence voice commands act on the app itself | every page |
 
@@ -69,6 +70,8 @@ FlowMesh drives the agent CLI you already have. Details, limits and what is not 
 5. **Read the receipt.** A coding task is `returned` at best, never `verified`: FlowMesh did not check
    the work. For a git repository it also reports exactly which files and commits git saw change.
 
+**Team up.** Put two to four agents in one plan: one works and another reviews it read-only, plan then build then review, or several answer the same task read-only to compare. Risk is the highest step's, a step runs only if the one before it finished cleanly, and the earlier output reaches the next agent as quoted, untrusted data ([details](docs/AGENTS.md#teaming-up-several-agents-in-one-plan)).
+
 You can also say it: *"ask Codex to fix the failing test"* works with `claude`, `claude code`, `codex`,
 `chatgpt codex`, `antigravity`, `agy`, `opencode`, `gemini` and `aider`. The sentence supplies the agent and
 the task only; the folder and mode come from your saved defaults and appear in the plan.
@@ -91,6 +94,7 @@ sentence into a validated tool plan; it only proposes, and every call is re-chec
 
 - **Live pickup.** On the desktop app new dictations are read from Wispr's local history (read-only,
   a fixed allow-list of columns, never audio or screenshots) and planned automatically.
+- **Wake word.** Opt-in "Hey FlowMesh", detected offline by the speech recogniser built into Windows (no cloud, nothing transcribed), with a visible badge while your microphone is open. Optionally it presses your own Wispr shortcut. Accuracy with a real voice and a real Wispr shortcut is **not verified yet**: [docs/WAKE.md](docs/WAKE.md).
 - **Voice commands.** Only a *whole utterance* that matches a short fixed grammar ("go to tools",
   "cancel", "read it back", "approve" if you turn that on) acts on the app; anything else is an ordinary
   sentence that becomes a plan. Approval by voice is off by default and can never approve a `danger` plan.
@@ -200,8 +204,8 @@ The browser UI and every other local process are treated as untrusted. Full deta
 ## Tests and what has actually been run
 
 ```bash
-python -m unittest discover -s tests -v   # 256 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
-npm test                                  # 134 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
+python -m unittest discover -s tests -v   # 282 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
+npm test                                  # 145 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
 ```
 
 [docs/VERIFICATION.md](docs/VERIFICATION.md) is the dated log with exact commands, including what is *not*

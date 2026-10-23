@@ -28,6 +28,12 @@
 
   function show(route) {
     if (!route || route === current) return;
+    var animate = document.startViewTransition && current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (animate) { document.startViewTransition(function () { swap(route); }); return; }
+    swap(route);
+  }
+
+  function swap(route) {
     current = route;
     Array.prototype.forEach.call(document.querySelectorAll('[data-page]'), function (page) {
       var on = page.getAttribute('data-page') === route;

@@ -36,7 +36,7 @@ if (task.includes('SPLIT')) {
   }, 300);
   return;
 }
-const write = /WRITE:(\S+)/.exec(task);
+const write = /WRITE:([\w.]+)/.exec(task);
 if (write) fs.writeFileSync(write[1], 'created by the mock agent\n');
 const sleep = /SLEEP:(\d+)/.exec(task);
 const finish = () => {

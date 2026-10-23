@@ -106,9 +106,54 @@
     cards.forEach(function (card) { observer.observe(card); });
   }
 
+  /* Page titles rise word by word out of a mask, the way the best-crafted sites reveal a headline.
+     Words are wrapped once (text nodes only, so <em> survives) and the animation replays on each
+     route. Nothing is wrapped under reduced motion, and the text is never hidden without script. */
+  function splitTitle(title) {
+    if (title.getAttribute('data-split')) return;
+    title.setAttribute('data-split', '1');
+    var index = 0;
+    (function walk(node) {
+      Array.prototype.slice.call(node.childNodes).forEach(function (child) {
+        if (child.nodeType === 3) {
+          var parts = child.nodeValue.split(/(\s+)/);
+          var frag = document.createDocumentFragment();
+          parts.forEach(function (part) {
+            if (!part) return;
+            if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(part)); return; }
+            var mask = document.createElement('span');
+            mask.className = 'split-word';
+            var inner = document.createElement('span');
+            inner.textContent = part;
+            inner.style.setProperty('--i', String(index));
+            index += 1;
+            mask.appendChild(inner);
+            frag.appendChild(mask);
+          });
+          node.replaceChild(frag, child);
+        } else if (child.nodeType === 1) {
+          walk(child);
+        }
+      });
+    })(title);
+  }
+
+  function revealTitles(route) {
+    if (reduced) return;
+    var page = document.querySelector('[data-page="' + route + '"]');
+    var title = page && page.querySelector('.page-head h1');
+    if (!title) return;
+    splitTitle(title);
+    title.classList.remove('split-on');
+    void title.offsetWidth;
+    title.classList.add('split-on');
+  }
+
   function init() {
     hero();
     stagger();
+    document.addEventListener('flowmesh:route', function (event) { revealTitles(event.detail.route); });
+    if (window.FlowMeshRouter && window.FlowMeshRouter.current()) revealTitles(window.FlowMeshRouter.current());
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

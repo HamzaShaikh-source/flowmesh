@@ -139,6 +139,69 @@ class PlanAndRunTest(AgentsBridgeCase):
         self.assertEqual(self.call("GET", "/api/agents/runs/not-a-run")[0], 404)
 
 
+class RelayTest(AgentsBridgeCase):
+    def relay(self, kind, agents, prompt="hello", mode="edit", expected=200, **extra):
+        space = self.add_folder()
+        body = {"kind": kind, "workspace": space["id"], "prompt": prompt, "agents": agents, "mode": mode, **extra}
+        status, _, raw = self.call("POST", "/api/agents/relay", body)
+        self.assertEqual(status, expected, raw)
+        return self.json_of(raw)
+
+    def approve(self, plan):
+        status, _, raw = self.call("POST", "/api/execute", {"plan_id": plan["id"]})
+        self.assertEqual(status, 200, raw)
+        return self.json_of(raw)["results"]
+
+    def test_work_then_review_hands_the_output_over_as_untrusted_data(self):
+        plan = self.relay("review", ["mock", "mock2"], prompt="WRITE:made.txt")
+        steps = [a for a in plan["actions"] if a["kind"] == "agent_run"]
+        self.assertEqual([(a["role"], a["risk"], a["handoff_from"]) for a in steps], [("work", "write", None), ("review", "read", 0)])
+        self.assertEqual(plan["risk"], "write")
+        self.assertFalse(plan["auto_run"])
+        results = self.approve(plan)
+        self.assertEqual([r["status"] for r in results[:2]], ["returned", "returned"])
+        second = results[1]["output"]
+        self.assertIn("untrusted", second)
+        self.assertIn("made.txt", second)
+        self.assertIn("Review the changes", second)
+        self.assertEqual(results[-1]["status"], "verified")
+
+    def test_a_failed_step_stops_the_ones_after_it(self):
+        plan = self.relay("review", ["mock", "mock2"], prompt="FAIL")
+        results = self.approve(plan)
+        self.assertEqual(results[0]["status"], "failed")
+        self.assertEqual(results[1]["status"], "denied")
+        self.assertIn("Skipped", results[1]["detail"])
+
+    def test_plan_build_review_chain_has_three_steps_in_order(self):
+        plan = self.relay("chain", ["mock", "mock2", "mock3"])
+        steps = [a for a in plan["actions"] if a["kind"] == "agent_run"]
+        self.assertEqual([(a["role"], a["mode"]) for a in steps], [("plan", "plan"), ("work", "edit"), ("review", "plan")])
+        self.assertEqual([r["status"] for r in self.approve(plan)[:3]], ["returned"] * 3)
+
+    def test_compare_is_read_only_and_independent(self):
+        plan = self.relay("compare", ["mock", "mock2"])
+        steps = [a for a in plan["actions"] if a["kind"] == "agent_run"]
+        self.assertEqual([(a["risk"], a["handoff_from"]) for a in steps], [("read", None), ("read", None)])
+        self.assertEqual(plan["risk"], "read")
+        self.relay("compare", ["mock", "mock"], expected=422)
+
+    def test_full_access_in_any_step_needs_the_second_confirmation(self):
+        plan = self.relay("review", ["mock", "mock2"], mode="full")
+        self.assertEqual((plan["risk"], plan["needs_confirm"]), ("danger", True))
+        self.assertEqual(self.call("POST", "/api/execute", {"plan_id": plan["id"]})[0], 428)
+
+    def test_an_agent_that_cannot_be_read_only_cannot_review(self):
+        body = self.relay("review", ["mock", "mockarg"], expected=422)
+        self.assertIn("read-only", body["error"])
+
+    def test_bad_shapes_are_refused(self):
+        self.relay("review", ["mock"], expected=422)
+        self.relay("chain", ["mock", "mock2"], expected=422)
+        self.relay("nonsense", ["mock", "mock2"], expected=422)
+        self.relay("review", ["mock", "mock2"], expected=400, path="C:/Windows")
+
+
 class PhraseAndSigninTest(AgentsBridgeCase):
     def test_a_spoken_agent_sentence_becomes_a_plan_with_saved_defaults(self):
         space = self.add_folder()

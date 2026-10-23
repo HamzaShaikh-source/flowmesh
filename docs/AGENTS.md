@@ -131,3 +131,31 @@ modes exist so that the worst case needs a second gesture.
   headless flags and are covered by unit tests, but have not been run against the real programs.
   If a vendor changes a flag, the catalog in `agents.py` is the one place to fix (then run
   `python scripts/export_agents_catalog.py` to refresh the Electron copy).
+
+## Teaming up: several agents in one plan
+
+On the Code page, **Team up** (or `POST /api/agents/relay`) puts two to four agents in one plan:
+
+| Pattern | Steps |
+| --- | --- |
+| `review` | agent 1 works (edit or full access), agent 2 reviews read-only |
+| `chain` | agent 1 plans read-only, agent 2 builds, agent 3 reviews read-only |
+| `compare` | every agent answers the same task read-only, one after the other; nothing is handed over |
+
+Each step is an ordinary coding task, validated like a single one, and the plan shows all of them with
+their exact commands. The rules that matter:
+
+- **Risk is the highest step's.** Full access in any step needs the second confirmation. A plan is
+  never auto-run.
+- **Review and planning steps are read-only by construction.** An agent with no read-only mode in
+  headless mode (OpenCode) cannot take those steps; FlowMesh refuses the plan and says why.
+- **A later step sees the earlier output as quoted, untrusted data.** It is wrapped in a header telling
+  the agent to treat it as data, bounded to 4 000 characters, and sits inside the normal 8 000 character
+  task limit. This is mitigation, not a guarantee: an agent that obeys text inside quoted output could
+  still be misled, which is why the working step is never fed by a model-written tool call and the
+  whole relay is approved up front.
+- **A step starts only if the one before it `returned`.** After a failure, cancel or timeout the rest
+  are `denied` with "Skipped" and never run.
+- Each step has its own receipt, run id and live output; **Stop** stops the running one and the rest are skipped.
+
+Not verified with real models: the relays are tested end to end against the mock agent, in both runtimes.
