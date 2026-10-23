@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 APP_NAME = "FlowMesh"
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 try:  # Optional: the app must run with a bare Python interpreter.
     import keyring
