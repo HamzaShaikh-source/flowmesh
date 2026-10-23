@@ -16,8 +16,8 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var PAGES = { home: 'home', dashboard: 'home', flow: 'flow', tools: 'tools', code: 'code', coding: 'code', guide: 'guide', 'voice guide': 'guide', wispr: 'wispr', history: 'history', runs: 'history', settings: 'settings', about: 'about', 'how it works': 'about' };
-  var NAV = /^(?:go to|open|show|take me to)(?: me)?(?: the)? (home|dashboard|flow|tools|code|coding|guide|voice guide|wispr|history|runs|settings|about|how it works)(?: page)?$/;
+  var PAGES = { home: 'home', dashboard: 'home', flow: 'flow', tools: 'tools', code: 'code', coding: 'code', guide: 'guide', 'voice guide': 'guide', wispr: 'wispr', history: 'history', runs: 'history', settings: 'settings', about: 'about', proof: 'about', 'how it works': 'about' };
+  var NAV = /^(?:go to|open|show|take me to)(?: me)?(?: the)? (home|dashboard|flow|tools|code|coding|guide|voice guide|wispr|history|runs|settings|about|proof|how it works)(?: page)?$/;
   var CANCEL = /^(?:cancel|never mind|nevermind|stop|dismiss)(?: that| it| the plan| this)?$/;
   var APPROVE = /^(?:approve|approve and run|approve it|run it|do it|go ahead)$/;
   var READ = /^(?:read(?: it| that| the plan)?(?: back| out| aloud| again)?|what(?:'s| is) the plan|say (?:it|that|the plan) again)$/;

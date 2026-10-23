@@ -1,0 +1,138 @@
+{
+  "generated_at": "2026-10-23T18:16:32+00:00",
+  "commit": "9577b4e",
+  "version": "1.7.5",
+  "commits": 66,
+  "first_commit": "2026-10-19T22:27:35+05:30",
+  "tests": {
+    "python": {
+      "ran": 337,
+      "ok": true,
+      "seconds": 165.945
+    },
+    "node": {
+      "ran": 190,
+      "passed": 190,
+      "failed": 0
+    }
+  },
+  "eval": {
+    "generated": "2026-10-23 18:02 UTC",
+    "commit": "92ceaa5",
+    "verdict": "every invariant held.",
+    "parity": "43 / 43",
+    "golden": "12 / 12",
+    "refusals": "6 / 6",
+    "routed": "27 / 39",
+    "abstained": "12 / 39",
+    "http_pass": 6,
+    "http_rows": 6
+  },
+  "release": {
+    "tag": "v1.7.4",
+    "published": "2026-10-23T17:04:24Z",
+    "url": "https://github.com/HamzaShaikh-source/flowmesh/releases/tag/v1.7.4",
+    "assets": [
+      {
+        "name": "FlowMesh-1.7.4-linux-x86_64.AppImage",
+        "bytes": 128269966,
+        "sha256": "f0d4cd6f3f83dbebbb20c1fc57701d5dca170f49d2af2b51d433496ff46404c9"
+      },
+      {
+        "name": "FlowMesh-1.7.4-mac-arm64.dmg",
+        "bytes": 130684904,
+        "sha256": "e920847a8b23464d3b8c257b2e527fc81708115eb3ddeb0564c63593f5e94d41"
+      },
+      {
+        "name": "FlowMesh-1.7.4-win-x64.exe",
+        "bytes": 106459277,
+        "sha256": "1297b205d7d8d51c9997fe2319777d0064b2be750294ca80996dbad06608515f"
+      },
+      {
+        "name": "FlowMesh-Windows.zip",
+        "bytes": 17536223,
+        "sha256": "e648ecdc5f82c6678941c36543fd2c64f63f86998f583ed372ed2339aa18df52"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "bytes": 378,
+        "sha256": ""
+      }
+    ]
+  },
+  "ci": [
+    {
+      "conclusion": "success",
+      "sha": "92ceaa5",
+      "at": "2026-10-23T16:51:28Z",
+      "url": "https://github.com/HamzaShaikh-source/flowmesh/actions/runs/39990236812",
+      "event": "push"
+    },
+    {
+      "conclusion": "success",
+      "sha": "f0838af",
+      "at": "2026-10-23T16:23:03Z",
+      "url": "https://github.com/HamzaShaikh-source/flowmesh/actions/runs/39986302198",
+      "event": "push"
+    },
+    {
+      "conclusion": "success",
+      "sha": "cc2ff5e",
+      "at": "2026-10-23T15:54:26Z",
+      "url": "https://github.com/HamzaShaikh-source/flowmesh/actions/runs/39982275117",
+      "event": "push"
+    },
+    {
+      "conclusion": "success",
+      "sha": "7ab1691",
+      "at": "2026-10-23T15:07:00Z",
+      "url": "https://github.com/HamzaShaikh-source/flowmesh/actions/runs/39975480243",
+      "event": "push"
+    },
+    {
+      "conclusion": "success",
+      "sha": "ee5a7dd",
+      "at": "2026-10-23T14:33:16Z",
+      "url": "https://github.com/HamzaShaikh-source/flowmesh/actions/runs/39970615981",
+      "event": "push"
+    }
+  ],
+  "still_measuring": [
+    {
+      "title": "Words dictated with Wispr Flow while building this",
+      "why": "Only Wispr's own Insights can show this. The app can read your local Wispr history, but a self-computed count is not the verified one, so the builder supplies the Insights card."
+    },
+    {
+      "title": "A real coding-agent answer through FlowMesh",
+      "why": "The agent plumbing is tested against mock CLIs and a real Codex run started and finished, but Codex's own Windows sandbox failed to read the test file on the build machine, so no real answer has come through yet."
+    },
+    {
+      "title": "Relays and councils with real models",
+      "why": "Tested end to end against scripted and mock agents in both runtimes; never run with real models, so how useful the votes and scores are is unmeasured."
+    },
+    {
+      "title": "MCP servers against real services",
+      "why": "The protocol client is tested against a mock server. Discord, Slack, Notion and Switch are templates that were never run against a real workspace."
+    },
+    {
+      "title": "Wispr key press into the capture field, and the wake word hearing a real voice",
+      "why": "The harness and the recogniser are tested with typed events and a fake recogniser; nobody has spoken to either on record."
+    },
+    {
+      "title": "Wispr account sign-in after the person approves",
+      "why": "Discovery, registration and the redirect to Wispr's real login page were checked against Wispr's live servers; the token exchange after sign-in was not re-verified."
+    },
+    {
+      "title": "Windows system-volume keys and real tab capture",
+      "why": "Tested with injected fakes; the automation environment blocks tab capture and no real volume change was observed."
+    },
+    {
+      "title": "Plan quality against human judgement",
+      "why": "There is no labelled corpus of dictated commands with correct plans. The eval measures routing, parity and safety invariants, not whether a plan matches intent."
+    },
+    {
+      "title": "Time saved",
+      "why": "No measurement exists, so none is claimed anywhere."
+    }
+  ]
+}

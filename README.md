@@ -44,7 +44,7 @@ and forest accents), with a voice dock on every page and a command palette on `C
 | **Wispr** | history reader, optional Wispr account connection, Scratchpad notes, dictionary |
 | **History** | every run record, with its SHA-256 |
 | **Settings** | Home Assistant, a Jev key, the language model used for planning |
-| **About** | how it works and what it will not do |
+| **Proof** | "Measured, never estimated": test counts, CI, the eval, release checksums, all generated from real runs by `scripts/build_proof.py`, a list of what is **not** yet measured, and what runs where |
 
 ## Coding agents: Claude Code, Codex, Antigravity, OpenCode, Gemini CLI, Aider
 
@@ -211,7 +211,7 @@ The browser UI and every other local process are treated as untrusted. Full deta
 
 ```bash
 python -m unittest discover -s tests -v   # 337 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
-npm test                                  # 186 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
+npm test                                  # 190 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
 ```
 
 [docs/VERIFICATION.md](docs/VERIFICATION.md) is the dated log with exact commands, including what is *not*

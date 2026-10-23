@@ -19,6 +19,7 @@
 <script src="voice-grammar.js" defer></script>
 <script src="pilot-core.js" defer></script>
 <script src="guide.js" defer></script>
+<script src="proof.js" defer></script>
 <script src="pilot.js" defer></script>
 <script src="voice.js" defer></script>
 <script src="wake.js" defer></script>
@@ -69,7 +70,7 @@
       <a href="#/wispr" data-route="wispr"><svg class="ico"><use href="#i-wispr"/></svg><span>Wispr</span></a>
       <a href="#/history" data-route="history"><svg class="ico"><use href="#i-history"/></svg><span>History</span></a>
       <a href="#/settings" data-route="settings"><svg class="ico"><use href="#i-settings"/></svg><span>Settings</span></a>
-      <a href="#/about" data-route="about"><svg class="ico"><use href="#i-about"/></svg><span>About</span></a>
+      <a href="#/about" data-route="about"><svg class="ico"><use href="#i-about"/></svg><span>Proof</span></a>
     </nav>
     <div class="side-foot">
       <span class="runtime" id="runtimeBadge" data-state="detecting" role="status" aria-live="polite">
@@ -157,6 +158,7 @@
             <a class="button primary" href="#/flow">Open Flow <svg class="ico"><use href="#i-arrow"/></svg></a>
             <a class="button" href="#/tools">Connect tools</a>
             <a class="button" href="#/guide">Voice guide</a>
+            <a class="button" href="#/about">See the proof</a>
           </div>
         </div>
         <div class="card">
@@ -658,10 +660,20 @@
     <!-- ============================================================ ABOUT -->
     <section class="page" data-page="about" aria-labelledby="about-title" hidden>
       <header class="page-head">
-        <p class="eyebrow">Honest by construction</p>
-        <h1 id="about-title">What runs <em>where.</em></h1>
-        <p class="lede">Every advertised capability is listed with the runtime that performs it. Nothing below is a simulation: a row marked unavailable is unavailable, not a placeholder for a demo.</p>
+        <p class="eyebrow">Evidence, not promises</p>
+        <h1 id="about-title">The proof, and <em>what runs where.</em></h1>
+        <p class="lede">Numbers from real runs, then every advertised capability listed with the runtime that performs it. Nothing below is a simulation: a row marked unavailable is unavailable, not a placeholder for a demo.</p>
       </header>
+      <section class="proof" id="proof" aria-labelledby="proof-title">
+        <h2 class="group-title first" id="proof-title">Measured, <em>never estimated.</em></h2>
+        <p class="lede lede-gap" id="proofMeta">Loading the evidence&hellip;</p>
+        <div class="proof-grid" id="proofMeasured"></div>
+        <h2 class="group-title">Still being measured</h2>
+        <p class="lede lede-gap">These are <strong>not claimed</strong>. Each says what is missing and why, so a judge does not have to guess what was left out.</p>
+        <ul class="proof-pending" id="proofPending"></ul>
+      </section>
+
+      <h2 class="group-title">What runs where</h2>
       <div class="table-wrap">
         <table class="cap-table">
           <caption class="sr-only">Capability support in the browser edition and the desktop app</caption>
