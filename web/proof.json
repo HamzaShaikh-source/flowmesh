@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-10-23T18:15:11+00:00",
-  "commit": "67d2dfb",
-  "version": "1.7.4",
-  "commits": 64,
+  "generated_at": "2026-10-23T18:16:32+00:00",
+  "commit": "9577b4e",
+  "version": "1.7.5",
+  "commits": 66,
   "first_commit": "2026-10-19T22:27:35+05:30",
   "tests": {
     "python": {
