@@ -78,6 +78,33 @@ How it stays safe:
 - On the **desktop app** the capture field is hidden: live pickup already reads Wispr's history, and the same
   commands work there too.
 
+## The page pilot: zoom, volume, screenshots and the whole palette
+
+A small **rule-based agent** (no model) drives the page when a sentence is not one of the fixed commands
+above. It is in `web/pilot-core.js` (the language, unit-tested) and `web/pilot.js` (the actions).
+
+| Say | What happens |
+| --- | --- |
+| "zoom in", "zoom out", "make it bigger", "zoom to 150 percent", "reset zoom" | page zoom from 50% to 300%, remembered |
+| "volume up", "volume down", "mute", "unmute", "set volume to 40 percent" | see below |
+| "take a screenshot" | see below |
+| "scroll to the receipts section", "go back", "go forward", "reload the page", "full screen" | movement; a section is matched by its words and only when exactly one heading fits |
+| "use my last Wispr dictation", "add an MCP server", "try the deep focus example" | any command-palette action, matched strictly |
+
+- **Volume has two meanings and the pilot says which it used.** On the desktop app (Windows) up, down and mute
+  press the real media keys, five presses (about 10%) at a time. Everywhere else, and for "set volume to N",
+  it changes FlowMesh's own *voice volume*, which scales the read-aloud summaries and the wake chime. A web
+  page cannot move your computer's volume, so the hosted page never claims to.
+- **Screenshots.** The desktop app (Electron) captures its own window and saves a PNG in your FlowMesh folder
+  with a SHA-256; nothing is uploaded. In a browser the pilot uses the browser's tab capture, which asks you
+  to choose a tab each time; the Python runtime has no window of its own, so it uses that path too.
+- **Palette matching is strict.** Every content word you said must appear in the action's label and exactly one
+  label may fit, so "add a note to the board" cannot fire "Add an MCP server". Anything containing approve,
+  confirm, danger, delete, remove, forget, disconnect, sign out, clear all, "cancel the plan", "run it" or
+  "do it" is refused even if the palette lists it. Approval by voice remains a checkbox you set yourself.
+- Whole sentences only: "zoom in on the pricing table and send it to Rohan" is a normal plan, not a zoom.
+- `FLOWMESH_PILOT=off` disables the two desktop abilities (volume keys, window screenshot).
+
 ## Reading results aloud
 
 *Read plans and results aloud* uses the device's speech synthesis. It speaks only FlowMesh's own
@@ -117,3 +144,19 @@ receipt; "what can I say" opened the help sheet; an ordinary routine sentence be
 **Not verified:** a real Wispr key press into the field (Wispr inserts text with its own timing, so the
 1.5 s pause is a guess to tune), speech synthesis output, and screen-reader behaviour of a field that holds
 focus (Escape and the dock toggle are the ways out).
+
+### What was verified for the pilot (23 October 2026)
+
+- The language: unit tests over zoom, volume, screenshot, movement, strict palette matching, ambiguity, refused
+  approval/deletion labels, sentences that merely contain command words, and odd input (Node).
+- The desktop abilities, with injected fakes so no real key is pressed: media-key mapping and counts, bounds,
+  non-Windows refusal, window-screenshot saving with hash, 501/502 paths, token and kill-switch, in both
+  runtimes with Python-to-Node parity. Two real bugs were found and fixed on the way (an array passed as the
+  volume action was accepted or crashed).
+- In the real page: "zoom in", "zoom to 150 percent" and "reset zoom" changed the page zoom, mute and "set volume
+  to 40 percent" changed the voice volume, "scroll to the receipts section" scrolled, a sentence that merely
+  began with "zoom in" and "approve the plan on screen" were not treated as pilot commands, and "zoom to 130
+  percent" typed into the capture field took effect.
+- **Not verified:** real tab capture and real full screen (the automation pane blocks both, and the pilot
+  reported that gracefully), a real Windows system-volume change, and the Electron window screenshot against a
+  real window (the runtime is tested with a fake capture).

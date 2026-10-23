@@ -29,6 +29,7 @@ const { createManager } = require('./mcp_registry.js');
 const { PRESETS } = require('./mcp_presets.js');
 const llm = require('./llm_planner.js');
 const { createWake } = require('./wake.js');
+const pilotTools = require('./pilot.js');
 const {
   createAgents, agentPhrase, agentById, buildCommand, publicCatalog, AgentError, withHandoff,
 } = require('./agents.js');
@@ -208,6 +209,8 @@ function createRuntime(options = {}) {
     mcpManager = null,
     agentsManager = null,
     wakeManager = null,
+    capturePage = null,
+    pressVolumeImpl = null,
     wakeTimerMs = 3000,
     openTerminal = null,
     confirmProgram = null,
@@ -218,6 +221,7 @@ function createRuntime(options = {}) {
   const mcp = mcpManager || createManager({ store, version: VERSION, fetchImpl });
   const agents = agentsManager || createAgents({ store, env, platform });
   const wake = wakeManager || createWake({ store, platform });
+  const pilotEnabled = () => String(env.FLOWMESH_PILOT || '').toLowerCase() !== 'off';
   const wakeEnabled = () => String(env.FLOWMESH_WAKE || '').toLowerCase() !== 'off';
   const agentsEnabled = () => String(env.FLOWMESH_AGENTS || '').toLowerCase() !== 'off';
   const plans = new Map();
@@ -963,6 +967,40 @@ function createRuntime(options = {}) {
     }
   }
 
+  async function pilotPost(pathname, body, response) {
+    if (!pilotEnabled()) {
+      sendJson(response, { error: 'The page pilot is disabled on this install (FLOWMESH_PILOT=off).', kind: 'disabled' }, 403);
+      return;
+    }
+    if (pathname === '/api/pilot/volume') {
+      if (Object.keys(body).some((k) => !['action', 'steps'].includes(k))) {
+        sendJson(response, { error: 'Invalid request' }, 400);
+        return;
+      }
+      const result = pressVolumeImpl ? pressVolumeImpl(body.action, body.steps) : pilotTools.pressVolume(body.action, body.steps, { platform });
+      const status = result.ok ? 200 : { bad_request: 400, unsupported: 501 }[result.kind] || 502;
+      sendJson(response, result.ok ? result : { error: result.detail, kind: result.kind }, status);
+    } else if (pathname === '/api/pilot/screenshot') {
+      if (Object.keys(body).length) {
+        sendJson(response, { error: 'Invalid request' }, 400);
+        return;
+      }
+      if (!capturePage) {
+        sendJson(response, { error: "This runtime has no window to photograph. In a browser, FlowMesh uses the browser's own tab capture.", kind: 'unsupported' }, 501);
+        return;
+      }
+      try {
+        const png = await capturePage();
+        if (!png) throw new Error('There is no window to capture.');
+        sendJson(response, pilotTools.saveScreenshot(png, artifactDir(env)));
+      } catch (error) {
+        sendJson(response, { error: `Could not take the screenshot (${error.message}).`, kind: 'failed' }, 502);
+      }
+    } else {
+      sendJson(response, { error: 'Not found' }, 404);
+    }
+  }
+
   function wakePost(body, response) {
     if (!wakeEnabled()) {
       sendJson(response, { error: 'The wake word is disabled on this install (FLOWMESH_WAKE=off).', kind: 'disabled' }, 403);
@@ -1178,6 +1216,7 @@ function createRuntime(options = {}) {
       }
       if (pathname === '/api/mcp/presets') return sendJson(response, { presets: PRESETS });
       if (pathname === '/api/wake') return sendJson(response, { enabled: wakeEnabled(), ...wake.status() });
+      if (pathname === '/api/pilot') return sendJson(response, { enabled: pilotEnabled(), system_volume: platform === 'win32', screenshot: Boolean(capturePage) });
       if (pathname === '/api/agents') {
         return sendJson(response, {
           enabled: agentsEnabled(), catalog: publicCatalog(agents.catalog), config: agents.config(), detection: agents.detect(),
@@ -1257,6 +1296,7 @@ function createRuntime(options = {}) {
       }
       if (pathname.startsWith('/api/mcp/')) return void (await mcpPost(pathname, body, response));
       if (pathname === '/api/wake') return void wakePost(body, response);
+      if (pathname.startsWith('/api/pilot/')) return void (await pilotPost(pathname, body, response));
       if (pathname.startsWith('/api/agents/')) return void (await agentsPost(pathname, body, response));
       if (pathname === '/api/wispr/account/connect') return void (await accountCall(response, () => account.begin(callbackUrl())));
       if (pathname === '/api/wispr/account/poll') return void (await accountCall(response, () => account.poll()));

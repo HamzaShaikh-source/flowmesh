@@ -12,7 +12,7 @@ const { test } = require('node:test');
 const WEB = path.join(__dirname, '..', '..', 'web');
 const read = (name) => fs.readFileSync(path.join(WEB, name), 'utf8');
 const html = read('index.html');
-const SCRIPTS = ['core.js', 'ui.js', 'tools.js', 'code.js', 'pages.js', 'voice-grammar.js', 'voice.js', 'wake.js', 'motion.js'];
+const SCRIPTS = ['core.js', 'ui.js', 'tools.js', 'code.js', 'pages.js', 'voice-grammar.js', 'voice.js', 'wake.js', 'pilot-core.js', 'pilot.js', 'motion.js'];
 
 const idsInHtml = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
 
@@ -102,4 +102,12 @@ test('the voice harness is wired: capture field, its toggle and the help sheet',
   assert.match(grammar, /HELP_LIST/);
   assert.doesNotMatch(read('voice.js'), /voiceApprove\s*=\s*true/, 'no voice command may switch approval-by-voice on');
   assert.match(html, /<dialog class="sheet" id="voiceHelp"/);
+});
+
+test('the page pilot is wired: its scripts load before voice.js and the palette is exposed', () => {
+  const order = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  for (const name of ['pilot-core.js', 'pilot.js']) assert.ok(order.indexOf(name) !== -1 && order.indexOf(name) < order.indexOf('voice.js'), `${name} must load before voice.js`);
+  assert.match(read('tools.js'), /window\.FlowMeshPalette\s*=/);
+  assert.match(read('voice.js'), /FlowMeshPilot\.handle\(/);
+  assert.match(read('pilot-core.js'), /approve\|confirm/, 'the approval block list exists');
 });

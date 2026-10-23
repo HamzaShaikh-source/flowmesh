@@ -17,6 +17,8 @@
 <script src="code.js" defer></script>
 <script src="pages.js" defer></script>
 <script src="voice-grammar.js" defer></script>
+<script src="pilot-core.js" defer></script>
+<script src="pilot.js" defer></script>
 <script src="voice.js" defer></script>
 <script src="wake.js" defer></script>
 <script src="motion.js" defer></script>
@@ -132,6 +134,15 @@
         <a class="stat" href="#/tools" id="statTools"><span class="k">Tools</span><span class="v" id="statToolsV">0</span><span class="s" id="statToolsS">none connected</span></a>
         <a class="stat" href="#/history" id="statRuns"><span class="k">Runs</span><span class="v" id="statRunsV">0</span><span class="s" id="statRunsS">none yet</span></a>
         <a class="stat" href="#/settings" id="statModel"><span class="k">Planner</span><span class="v" id="statModelV">Rules</span><span class="s" id="statModelS">local, deterministic</span></a>
+      </div>
+
+      <div data-only="browser" class="mt-18">
+        <figure class="connector-clip" id="demoClip">
+          <figcaption>Recorded 23 Oct 2026 &middot; the live page &middot; sentences typed in place of Wispr dictation &middot; 65 s</figcaption>
+          <video id="demoVideo" src="media/demo.mp4" poster="media/demo-poster.jpg" controls preload="none" playsinline width="1280" height="720"
+                 aria-label="Screen recording of the FlowMesh page being driven by voice-style commands: opening a tool, planning, approving with a click, zooming, and a refused dangerous request"></video>
+          <p class="quiet small">The page, the plans and the receipts are real. Only the typing is a stand-in for talking: Wispr Flow inserts a dictated phrase into the focused field in one piece, and so does this recording. Phone and lamp rows say <em>desktop only</em> because this hosted page cannot reach them. It is made by <code>scripts/record_demo.js</code>, so it can be re-made whenever the page changes.</p>
+        </figure>
       </div>
 
       <div class="grid-2">

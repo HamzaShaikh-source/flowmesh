@@ -132,6 +132,7 @@
       synth.cancel();
       var utterance = new window.SpeechSynthesisUtterance(String(text).slice(0, 400));
       utterance.rate = 1.03;
+      if (window.FlowMeshPilot) utterance.volume = window.FlowMeshPilot.volume();
       synth.speak(utterance);
     } catch (err) { /* speech is a convenience; never let it break a run */ }
   }
@@ -190,6 +191,16 @@
       box.appendChild(list);
       body.appendChild(box);
     });
+    if (window.FlowMeshPilotCore) {
+      window.FlowMeshPilotCore.HELP.forEach(function (group) {
+        var box = UI.el('div');
+        box.appendChild(UI.el('h4', null, group[0]));
+        var list = UI.el('ul');
+        group[1].forEach(function (example) { list.appendChild(UI.el('li', null, '\u201c' + example + '\u201d')); });
+        box.appendChild(list);
+        body.appendChild(box);
+      });
+    }
     if (typeof $('voiceHelp').showModal === 'function' && !$('voiceHelp').open) $('voiceHelp').showModal();
   }
 
@@ -293,6 +304,8 @@
     if (opt.commands) {
       var command = parseCommand(clean, { builderOpen: visible('builderForm') });
       if (command && runCommand(command) !== false) return;
+      // The page pilot: zoom, volume, screenshot, scroll to a section, palette actions. Whole utterances only.
+      if (window.FlowMeshPilot && window.FlowMeshPilot.handle(clean)) return;
     }
     window.FlowMeshRouter.go('flow');
     if (source === 'wispr') UI.pullDictation();
@@ -340,6 +353,9 @@
     if (!value.trim()) return;
     if (!listening) $('dockHint').textContent = 'Heard: ' + value.trim().slice(0, 80);
     handleText(value, 'catch');
+    // The typing is over: leave the "Listening" look but keep whatever the command just announced.
+    $('voiceDock').setAttribute('data-state', 'waiting');
+    $('dockTitle').textContent = 'Voice';
     // A command can move focus (opening a tool focuses its first field). In voice mode the next sentence should
     // still come here, so take focus back, except when the person asked for the command box.
     later(function () {
@@ -515,7 +531,7 @@
     if (UI.mode() === 'desktop') startPolling();
   }
 
-  window.FlowMeshVoice = { repaint: paintDock, parseCommand: parseCommand, paletteItems: paletteItems, speak: speak, options: function () { return Object.assign({}, opt); } };
+  window.FlowMeshVoice = { announce: announce, repaint: paintDock, parseCommand: parseCommand, paletteItems: paletteItems, speak: speak, options: function () { return Object.assign({}, opt); } };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

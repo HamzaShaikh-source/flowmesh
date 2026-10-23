@@ -38,6 +38,7 @@ from mcp_client import McpError
 import llm_planner
 from mcp_registry import MANAGER, public_tool
 from wake import MANAGER as WAKE
+import pilot as pilot_tools
 from agents import MANAGER as AGENTS, AgentError, agent_by_id, agent_phrase, public_catalog, with_handoff
 import mcp_presets
 
@@ -366,6 +367,10 @@ def plan_command(command: object, dictation: dict | None = None, context: object
     if notice:
         plan["notice"] = f"{notice} Planned with local rules instead."
     return plan, "", 200
+
+
+def pilot_enabled() -> bool:
+    return os.environ.get("FLOWMESH_PILOT", "").lower() != "off"
 
 
 def wake_enabled() -> bool:
@@ -917,6 +922,24 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def pilot_post(self, body: dict) -> None:
+        """The page pilot's desktop abilities: system volume keys, and (Electron only) a window screenshot."""
+        if not pilot_enabled():
+            self.send_json({"error": "The page pilot is disabled on this install (FLOWMESH_PILOT=off).", "kind": "disabled"}, 403)
+            return
+        if self.path == "/api/pilot/volume":
+            if set(body) - {"action", "steps"}:
+                self.send_json({"error": "Invalid request"}, 400)
+                return
+            result = pilot_tools.press_volume(body.get("action"), body.get("steps"))
+            status = 200 if result["ok"] else {"bad_request": 400, "unsupported": 501}.get(result.get("kind"), 502)
+            self.send_json(result if result["ok"] else {"error": result["detail"], "kind": result.get("kind")}, status)
+        elif self.path == "/api/pilot/screenshot":
+            self.send_json({"error": "Screenshots of the app window are taken by the Electron app. In a browser, FlowMesh uses the browser's own tab capture.",
+                            "kind": "unsupported"}, 501)
+        else:
+            self.send_json({"error": "Not found"}, 404)
+
     def wake_post(self, body: dict) -> None:
         """Turn the wake word on or off, and set the Wispr shortcut it presses."""
         if not wake_enabled():
@@ -1147,6 +1170,11 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/wake":
             self.send_json({"enabled": wake_enabled(), **WAKE.status()})
             return
+        if self.path == "/api/pilot":
+            # The Python runtime has no window of its own, so it cannot photograph one; the page then uses the
+            # browser's own tab capture, which asks first.
+            self.send_json({"enabled": pilot_enabled(), "system_volume": os.name == "nt", "screenshot": False})
+            return
         if self.path == "/api/agents":
             self.send_json({"enabled": agents_enabled(), "catalog": public_catalog(AGENTS.catalog), "config": AGENTS.config(),
                             "detection": AGENTS.detect()})
@@ -1223,6 +1251,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/wake":
             self.wake_post(body)
+            return
+        if self.path.startswith("/api/pilot/"):
+            self.pilot_post(body)
             return
         if self.path.startswith("/api/agents/"):
             self.agents_post(body)
