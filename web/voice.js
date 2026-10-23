@@ -24,7 +24,7 @@
   var $ = function (id) { return document.getElementById(id); };
 
   var STORAGE_KEY = 'flowmesh_voice';
-  var DEFAULTS = { live: true, autoPlan: true, commands: true, voiceApprove: false, speak: false };
+  var DEFAULTS = { live: true, autoPlan: true, commands: true, voiceApprove: false, speak: false, capture: true };
   var POLL_MS = 1500;
   var MAX_FRESH_AGE_S = 30;
   var MAX_APPROVE_AGE_MS = 120000;
@@ -105,7 +105,7 @@
     } else if (desktop) {
       setDock('idle', 'Voice', 'Live pickup is off. Turn it on in Wispr.');
     } else {
-      setDock('idle', 'Voice', Recognition ? 'Tap the mic, or hold Wispr’s key and talk into the box.' : 'Hold Wispr’s key and talk into the box.');
+      setDock('idle', 'Voice', opt.capture ? 'Hold your Wispr key and talk. It types here, and FlowMesh acts on it.' : (Recognition ? 'Tap the mic, or hold Wispr’s key and talk into the box.' : 'Hold Wispr’s key and talk into the box.'));
     }
     $('micBtn').hidden = !Recognition;
     $('speakBtn').hidden = !synth;
@@ -151,9 +151,103 @@
   // Pure and unit-tested in voice-grammar.js: only whole utterances ever act as commands.
   var parseCommand = window.FlowMeshGrammar.parseCommand;
 
+  /* A few helpers for driving the page the way a person would: the same buttons, through the same
+     handlers, so every safety check (plan gate, danger confirmation, single use) still applies. */
+  function visible(id) { var n = $(id); return Boolean(n && !n.hidden && n.offsetParent !== null); }
+  function press(id) { var n = $(id); if (n && !n.disabled && visible(id)) { n.click(); return true; } return false; }
+  function later(fn, ms) { setTimeout(fn, ms); }
+  var SPOKEN_OPERATORS = [[/\btimes\b|\bmultiplied by\b/g, '*'], [/\bplus\b/g, '+'], [/\bminus\b/g, '-'], [/\bdivided by\b|\bover\b/g, '/'], [/\bopen bracket\b/g, '('], [/\bclose bracket\b/g, ')']];
+
+  function fillField(command) {
+    var rows = Array.prototype.slice.call(document.querySelectorAll('#builderFields .bfield'));
+    var want = command.field;
+    var row = rows.filter(function (r) { var b = r.querySelector('.bcap b'); return b && b.textContent.toLowerCase() === want; })[0]
+      || rows.filter(function (r) { var b = r.querySelector('.bcap b'); return b && b.textContent.toLowerCase().indexOf(want) !== -1; })[0];
+    var control = row && row.querySelector('input, select, textarea');
+    if (!control) return false; // not a field of the open form: it is an ordinary sentence, so it gets planned
+    var text = command.text;
+    if (want === 'expression') SPOKEN_OPERATORS.forEach(function (pair) { text = text.replace(pair[0], pair[1]); });
+    if (control.type === 'checkbox') control.checked = /^(?:on|yes|true|enabled?)$/i.test(text);
+    else if (control.tagName === 'SELECT') {
+      var option = Array.prototype.filter.call(control.options, function (o) { return o.value.toLowerCase() === text.toLowerCase() || o.textContent.toLowerCase() === text.toLowerCase(); })[0];
+      if (!option) return false;
+      control.value = option.value;
+    } else control.value = control.type === 'number' ? String(parseFloat(text)) : text;
+    control.dispatchEvent(new Event('input', { bubbles: true }));
+    control.dispatchEvent(new Event('change', { bubbles: true }));
+    announce('Set ' + want + '.');
+    return true;
+  }
+
+  function openHelp() {
+    var body = $('voiceHelpBody');
+    body.replaceChildren();
+    window.FlowMeshGrammar.HELP_LIST.forEach(function (group) {
+      var box = UI.el('div');
+      box.appendChild(UI.el('h4', null, group[0]));
+      var list = UI.el('ul');
+      group[1].forEach(function (example) { list.appendChild(UI.el('li', null, '\u201c' + example + '\u201d')); });
+      box.appendChild(list);
+      body.appendChild(box);
+    });
+    if (typeof $('voiceHelp').showModal === 'function' && !$('voiceHelp').open) $('voiceHelp').showModal();
+  }
+
+  /** Returns false only when a spoken `fill` named no field of the open form, so the sentence is planned instead. */
   function runCommand(command) {
     var router = window.FlowMeshRouter;
-    if (command.type === 'go') {
+    if (command.type === 'plan') {
+      router.go('flow');
+      announce('Creating the plan.');
+      later(UI.createPlan, 150);
+    } else if (command.type === 'focus') {
+      router.go('flow');
+      UI.focusCommand();
+      announce('Say or type your command.');
+    } else if (command.type === 'example') {
+      router.go('flow');
+      var chip = document.querySelector('[data-example="' + command.name + '"]');
+      if (chip) { chip.click(); announce('Loaded the example. Creating the plan.'); later(UI.createPlan, 250); }
+    } else if (command.type === 'latest') {
+      router.go('history');
+      later(function () {
+        var first = document.querySelector('#runsList .run');
+        if (first) { first.click(); announce('Opened the latest run.'); } else announce('There are no runs yet.');
+      }, 700);
+    } else if (command.type === 'copy' || command.type === 'download') {
+      var pairs = visible('artifactPanel') ? ['copyButton', 'downloadButton'] : visible('recordActions') ? ['recordCopy', 'recordDownload'] : null;
+      if (pairs && press(pairs[command.type === 'copy' ? 0 : 1])) announce(command.type === 'copy' ? 'Copying the record.' : 'Downloading the record.');
+      else announce('There is no run record on screen. Run a plan, or say "open the latest run".');
+    } else if (command.type === 'next') {
+      if (visible('nextStepBar') && press('nextStep')) announce('Planning the next step from that output.'); else announce('There is no output to build on yet.');
+    } else if (command.type === 'palette') {
+      var trigger = Array.prototype.filter.call(document.querySelectorAll('.js-palette'), function (n) { return n.offsetParent !== null; })[0];
+      if (trigger) trigger.click();
+    } else if (command.type === 'scroll') {
+      var behavior = UI.reduced() ? 'auto' : 'smooth';
+      if (command.to === 'top') window.scrollTo({ top: 0, behavior: behavior });
+      else if (command.to === 'bottom') window.scrollTo({ top: document.documentElement.scrollHeight, behavior: behavior });
+      else window.scrollBy({ top: (command.to === 'down' ? 1 : -1) * Math.round(window.innerHeight * 0.8), behavior: behavior });
+    } else if (command.type === 'speak') {
+      if (!synth) announce('This device has no speech synthesis.');
+      else { if (command.on !== opt.speak) $('speakBtn').click(); announce(command.on ? 'Reading aloud is on.' : 'Reading aloud is off.'); }
+    } else if (command.type === 'help') {
+      openHelp();
+    } else if (command.type === 'tool') {
+      router.go('tools');
+      later(function () {
+        var item = Array.prototype.filter.call(document.querySelectorAll('#toolList .tool-item'), function (n) {
+          var name = n.querySelector('.tool-name');
+          return name && name.textContent.split(' / ').pop() === command.tool; // rows read "server / tool"
+        })[0];
+        if (item) { item.click(); announce('Opened that tool. Say "set" and a field name to fill it in.'); } else announce('That tool is not connected.');
+      }, 200);
+    } else if (command.type === 'builder') {
+      var target = { add: 'builderAdd', call: 'builderPlan', chain: 'chainPlan', clear: 'chainClear' }[command.action];
+      if (!press(target)) announce('Open a tool first, then fill in its fields.');
+    } else if (command.type === 'fill') {
+      return fillField(command);
+    } else if (command.type === 'go') {
       router.go(command.page);
       announce('Opening ' + router.routes[command.page] + '.');
     } else if (command.type === 'cancel') {
@@ -197,8 +291,8 @@
     var clean = String(text || '').replace(/\s+/g, ' ').trim();
     if (!clean) return;
     if (opt.commands) {
-      var command = parseCommand(clean);
-      if (command) { runCommand(command); return; }
+      var command = parseCommand(clean, { builderOpen: visible('builderForm') });
+      if (command && runCommand(command) !== false) return;
     }
     window.FlowMeshRouter.go('flow');
     if (source === 'wispr') UI.pullDictation();
@@ -209,6 +303,76 @@
     } else {
       UI.toast('Picked up your dictation. Review it, then create the plan.');
     }
+  }
+
+  /* ---------------------------------------------------------------- Wispr capture (hosted page)
+
+     The hosted page cannot read Wispr Flow's local history, but Wispr types into whatever field has
+     focus. This field keeps focus when nothing else is being edited, so holding Wispr's key and talking
+     lands here; a pause (or Enter) sends the sentence through the same grammar and planner as a
+     spoken one. It yields to any other field you click into, and Escape leaves it. */
+
+  var CATCH_IDLE_MS = 1600;
+  var catchTimer = null;
+
+  function captureOn() { return UI.mode() === 'browser' && opt.capture; }
+
+  function paintCapture() {
+    var browser = UI.mode() === 'browser';
+    $('catchBtn').hidden = !browser;
+    $('catchBtn').setAttribute('aria-pressed', opt.capture ? 'true' : 'false');
+    $('voiceCatch').hidden = !(browser && opt.capture);
+    if (captureOn()) keepCatchFocus();
+  }
+
+  function keepCatchFocus() {
+    if (!captureOn() || document.querySelector('dialog[open]')) return;
+    var a = document.activeElement;
+    var editing = a && a !== $('voiceCatch') && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT' || a.tagName === 'SELECT' || a.isContentEditable);
+    if (editing) return;
+    if (!a || a === document.body || a === document.documentElement || a.id === 'main' || a.tagName === 'A' || a.tagName === 'BUTTON') $('voiceCatch').focus({ preventScroll: true });
+  }
+
+  function submitCapture() {
+    clearTimeout(catchTimer);
+    var value = $('voiceCatch').value;
+    $('voiceCatch').value = '';
+    if (!value.trim()) return;
+    if (!listening) $('dockHint').textContent = 'Heard: ' + value.trim().slice(0, 80);
+    handleText(value, 'catch');
+    // A command can move focus (opening a tool focuses its first field). In voice mode the next sentence should
+    // still come here, so take focus back, except when the person asked for the command box.
+    later(function () {
+      var a = document.activeElement;
+      if (captureOn() && !document.querySelector('dialog[open]') && !(a && a.id === 'commandInput')) $('voiceCatch').focus({ preventScroll: true });
+    }, 700);
+  }
+
+  function bindCapture() {
+    var field = $('voiceCatch');
+    field.addEventListener('input', function () {
+      clearTimeout(catchTimer);
+      catchTimer = setTimeout(submitCapture, CATCH_IDLE_MS);
+      if (!listening) setDock('listening', 'Listening\u2026', field.value.slice(-80));
+    });
+    field.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); submitCapture(); }
+      else if (event.key === 'Escape') { field.value = ''; clearTimeout(catchTimer); field.blur(); paintDock(); }
+    });
+    field.addEventListener('blur', function () { if (!field.value.trim()) paintDock(); });
+    $('catchBtn').addEventListener('click', function () {
+      opt.capture = !opt.capture;
+      saveOptions();
+      paintCapture();
+      UI.toast(opt.capture ? 'Wispr capture is on. Hold your Wispr key and talk.' : 'Wispr capture is off.');
+    });
+    document.addEventListener('click', function (event) {
+      var t = event.target;
+      if (t && t.closest && t.closest('textarea, input, select, a, button, summary, label, dialog')) return;
+      later(keepCatchFocus, 0);
+    });
+    ['flowmesh:route', 'flowmesh:plan', 'flowmesh:run'].forEach(function (name) { document.addEventListener(name, function () { later(keepCatchFocus, 300); }); });
+    window.addEventListener('focus', function () { later(keepCatchFocus, 100); });
   }
 
   /* ---------------------------------------------------------------- live pickup (desktop) */
@@ -324,9 +488,10 @@
 
   function init() {
     bindOptions();
+    bindCapture();
     $('micBtn').addEventListener('click', startMic);
     $('liveUse').addEventListener('click', function () { window.FlowMeshRouter.go('flow'); UI.pullDictation(); });
-    document.addEventListener('flowmesh:mode', function () { paintOptions(); if (UI.mode() === 'desktop') startPolling(); });
+    document.addEventListener('flowmesh:mode', function () { paintOptions(); paintCapture(); if (UI.mode() === 'desktop') startPolling(); });
     document.addEventListener('flowmesh:plan', function (event) {
       var plan = event.detail.plan;
       if (!listening) $('dockHint').textContent = 'Plan ready: ' + plan.title;
@@ -346,6 +511,7 @@
     window.addEventListener('blur', paintDock);
     document.addEventListener('visibilitychange', paintDock);
     paintOptions();
+    paintCapture();
     if (UI.mode() === 'desktop') startPolling();
   }
 
