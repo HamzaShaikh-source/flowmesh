@@ -23,6 +23,11 @@ const { spawn, spawnSync } = require('node:child_process');
 const core = require('../web/core.js');
 const { VERSION, createStore } = require('./config.js');
 const wispr = require('./wispr.js');
+const { createAccount, WisprAccountError, ACCOUNT_HTTP } = require('./wispr_account.js');
+const { McpError } = require('./mcp_client.js');
+const { createManager } = require('./mcp_registry.js');
+const { PRESETS } = require('./mcp_presets.js');
+const llm = require('./llm_planner.js');
 
 const PLAN_LIFETIME = 300;
 const MAX_EVENTS = 200;
@@ -91,7 +96,12 @@ function recordMarkdown(plan, receipts) {
   const lastWithNote = [...plan.actions].reverse().find((action) => action.note);
   const command = (lastWithNote && lastWithNote.note) || plan.command || '';
   const source =
-    { jev: 'Jev Choice', jev_unavailable: 'local rules (Jev unreachable)' }[plan.source] || 'local rules';
+    {
+      jev: 'Jev Choice',
+      jev_unavailable: 'local rules (Jev unreachable)',
+      builder: 'the tool builder',
+      llm: "a language model's proposal, checked against each tool's schema",
+    }[plan.source] || 'local rules';
   const lines = [
     `# FlowMesh run — ${plan.title}`,
     '',
@@ -114,6 +124,13 @@ function recordMarkdown(plan, receipts) {
       `| ${index + 1} | ${receipt.action.label} | ${receipt.action.surface} | ${receipt.status} | ${detail} |`,
     );
   });
+  const withOutput = receipts.map((receipt, index) => [index + 1, receipt]).filter(([, receipt]) => receipt.output);
+  if (withOutput.length) {
+    lines.push('', '## Tool output (untrusted text from the tool, shown as received)', '');
+    for (const [index, receipt] of withOutput) {
+      lines.push(`### ${index}. ${receipt.action.label}`, '', '~~~text', String(receipt.output).replace(/~~~/g, '\\~\\~\\~'), '~~~', '');
+    }
+  }
   lines.push('', '## What was said, verbatim', '', '~~~text', command.replace(/~~~/g, '\\~\\~\\~'), '~~~', '');
   lines.push(
     'A `sent` receipt means the request left FlowMesh. `verified` means FlowMesh observed the',
@@ -132,9 +149,14 @@ function createRuntime(options = {}) {
     env = process.env,
     platform = process.platform,
     fetchImpl = globalThis.fetch,
+    wisprAccount = null,
+    mcpManager = null,
+    confirmProgram = null,
   } = options;
 
   const sessionToken = crypto.randomBytes(24).toString('base64url');
+  const account = wisprAccount || createAccount({ store, version: VERSION });
+  const mcp = mcpManager || createManager({ store, version: VERSION, fetchImpl });
   const plans = new Map();
   const events = [];
   let timer = null;
@@ -150,6 +172,8 @@ function createRuntime(options = {}) {
       write_note: 'ready',
       notify: configured && s.phone_service.startsWith('mobile_app_') ? 'ready' : 'not_configured',
       light: configured && s.light_entity.startsWith('light.') ? 'ready' : 'not_configured',
+      tools: mcp.servers().some((server) => server.enabled) ? 'ready' : 'not_configured',
+      model: llm.configured(store) ? 'ready' : 'not_configured',
     };
   };
 
@@ -189,11 +213,20 @@ function createRuntime(options = {}) {
     }
   }
 
-  async function preparePlan(rawCommand, dictation) {
+  async function preparePlan(rawCommand, dictation, forcedRoute = null) {
     if (!core.commandIsUsable(rawCommand) || core.isForbidden(String(rawCommand).trim())) return null;
     const command = String(rawCommand).trim();
-    const decision = await jevRoute(command, Object.keys(core.WORKFLOWS));
-    const route = decision.source === 'jev' ? decision.route : core.localRoute(command);
+    let decision;
+    let route;
+    if (forcedRoute && Object.prototype.hasOwnProperty.call(core.WORKFLOWS, forcedRoute)) {
+      // A model chose this routine; the actions are still produced by the fixed planner,
+      // so a model can pick a routine but never shape its effects.
+      decision = { route: forcedRoute, source: 'llm', confidence: null };
+      route = forcedRoute;
+    } else {
+      decision = await jevRoute(command, Object.keys(core.WORKFLOWS));
+      route = decision.source === 'jev' ? decision.route : core.localRoute(command);
+    }
     if (!(route in core.WORKFLOWS)) return null;
     const payload = {
       id: crypto.randomBytes(24).toString('base64url'),
@@ -211,6 +244,82 @@ function createRuntime(options = {}) {
     plans.set(payload.id, payload);
     const { expires, command: _ignored, dictation: _provenance, ...visible } = payload;
     return visible;
+  }
+
+  /** A plan whose actions are MCP tool calls. Throws Error with a sentence. */
+  async function prepareToolPlan(calls, command = '', source = 'builder', note = '') {
+    const actions = await mcp.planActions(calls);
+    const count = actions.length;
+    const worst = actions.some((a) => a.risk === 'danger') ? 'danger' : actions.some((a) => a.risk === 'write') ? 'write' : 'read';
+    const autoRun = actions.every((a) => a.auto_ok);
+    if (!autoRun) {
+      actions.push({
+        kind: 'write_note', target: 'run_record', label: 'Save run record',
+        detail: "Markdown file in your FlowMesh folder, including each tool's output", surface: 'pc',
+        note: command || '(built in the tool builder, not dictated)',
+      });
+    }
+    const payload = {
+      id: crypto.randomBytes(24).toString('base64url'),
+      route: 'tools',
+      title: count > 1 ? 'Tool run' : 'Tool call',
+      description: `${count} call${count !== 1 ? 's' : ''}, highest risk: ${worst}. Each runs once, exactly as shown.`,
+      source,
+      confidence: null,
+      also: [],
+      actions,
+      risk: worst,
+      needs_confirm: worst === 'danger',
+      auto_run: autoRun,
+      expires: Date.now() + PLAN_LIFETIME * 1000,
+      created: timestamp(),
+      command: command || note,
+    };
+    const now = Date.now();
+    for (const [key, value] of plans) if (value.expires < now) plans.delete(key);
+    plans.set(payload.id, payload);
+    const { expires, command: _command, dictation: _dictation, ...visible } = payload;
+    return visible;
+  }
+
+  /** Plan a sentence. With a model it chooses a routine or tool calls (a proposal, re-validated);
+      without one the deterministic rules apply exactly as before. */
+  async function planCommand(rawCommand, dictation, context) {
+    const generic = 'Command is unsupported, unclear, or not allowed';
+    if (!core.commandIsUsable(rawCommand) || core.isForbidden(String(rawCommand).trim())) {
+      return { plan: null, message: generic, status: 422 };
+    }
+    const command = String(rawCommand).trim();
+    let notice = '';
+    if (llm.configured(store)) {
+      const { tools } = await mcp.catalog();
+      const routines = Object.fromEntries(Object.entries(core.WORKFLOWS).map(([name, [title, text]]) => [name, `${title}. ${text}`]));
+      let decision = null;
+      try {
+        decision = await llm.decide({ store, fetchImpl }, command, routines, tools, typeof context === 'string' ? context : '');
+      } catch (error) {
+        if (!(error instanceof llm.LlmError)) throw error;
+        notice = error.userMessage;
+      }
+      if (decision) {
+        if (decision.kind === 'calls') {
+          try {
+            return { plan: await prepareToolPlan(decision.calls, command, 'llm'), message: '', status: 200 };
+          } catch (error) {
+            return { plan: null, message: `The model proposed a call FlowMesh rejected: ${error.message}`, status: 422 };
+          }
+        }
+        if (decision.kind === 'routine') {
+          const plan = await preparePlan(command, dictation, decision.routine);
+          return plan ? { plan, message: '', status: 200 } : { plan: null, message: generic, status: 422 };
+        }
+        return { plan: null, message: decision.reply || generic, status: 422 };
+      }
+    }
+    const plan = await preparePlan(command, dictation);
+    if (plan === null) return { plan: null, message: `${notice ? `${notice} ` : ''}${generic}`, status: notice ? 502 : 422 };
+    if (notice) plan.notice = `${notice} Planned with local rules instead.`;
+    return { plan, message: '', status: 200 };
   }
 
   function cancelPlan(planId) {
@@ -296,9 +405,38 @@ function createRuntime(options = {}) {
     }
   }
 
+  /** Run one approved MCP call and report only what FlowMesh actually knows. A tool
+      answering is not proof its effect happened, so a good answer is `returned`, never
+      `verified`; a timeout is `unknown`. */
+  async function performMcp(action) {
+    const { server, tool, arguments: args } = action;
+    if (typeof server !== 'string' || typeof tool !== 'string' || !args || typeof args !== 'object' || Array.isArray(args)) {
+      return { status: 'denied', detail: 'Tool call is malformed' };
+    }
+    let result;
+    try {
+      result = await mcp.call(server, tool, args);
+    } catch (error) {
+      if (!(error instanceof McpError)) throw error;
+      if (error.kind === 'timeout') {
+        return { status: 'unknown', detail: `${error.userMessage} The effect may or may not have happened.` };
+      }
+      const gone = ['unavailable', 'disabled', 'unknown_server'].includes(error.kind);
+      return { status: gone ? 'unavailable' : 'failed', detail: error.userMessage };
+    }
+    const suffix = result.truncated ? ' Output was truncated.' : '';
+    if (result.is_error) return { status: 'failed', detail: `The tool reported an error.${suffix}`, output: result.text };
+    return {
+      status: 'returned',
+      detail: `The tool returned a result. FlowMesh did not independently verify its effect.${suffix}`,
+      output: result.text,
+    };
+  }
+
   async function perform(action) {
     const kind = action.kind;
     const target = action.target;
+    if (kind === 'mcp_call') return performMcp(action);
     if (kind === 'open_url' && target in ALLOWED_URLS) {
       const [field, fallback] = ALLOWED_URLS[target];
       const url = store.settings()[field] || fallback;
@@ -396,7 +534,9 @@ function createRuntime(options = {}) {
     }
     if (noteSlots.length) {
       const written = slots
-        .map((slot, index) => (slot ? { action: actions[index], status: slot.status, detail: slot.detail } : null))
+        .map((slot, index) => (slot
+          ? { action: actions[index], status: slot.status, detail: slot.detail, output: slot.output || '' }
+          : null))
         .filter(Boolean);
       const receipt = writeRecord(plan, written);
       for (const index of noteSlots) slots[index] = { ...receipt };
@@ -404,11 +544,18 @@ function createRuntime(options = {}) {
     const results = actions.map((action, index) => {
       const receipt = slots[index] || { status: 'failed', detail: 'No receipt produced' };
       const subset = {};
-      for (const key of ['kind', 'target', 'label', 'surface', 'value']) {
+      for (const key of ['kind', 'target', 'label', 'surface', 'value', 'risk']) {
         if (key in action) subset[key] = action[key];
       }
       const event = { at: timestamp(), action: subset, ...receipt };
-      events.push(event);
+      // The caller gets the full output. The in-memory log keeps a short head only, so
+      // 200 events can never hold 200 x 20 kB of third-party text.
+      const { output, ...logged } = event;
+      if (output) {
+        logged.output_preview = output.slice(0, 600);
+        logged.output_chars = output.length;
+      }
+      events.push(logged);
       return event;
     });
     if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
@@ -585,6 +732,64 @@ function createRuntime(options = {}) {
     };
   }
 
+  async function mcpPost(pathname, body, response) {
+    try {
+      if (pathname === '/api/mcp/servers') {
+        const { server } = body;
+        const existing = server && typeof server === 'object' ? mcp.get(server.id) : null;
+        const changesProgram = server && typeof server === 'object' && server.transport === 'stdio' && (
+          !existing || existing.command !== server.command || JSON.stringify(existing.args) !== JSON.stringify(server.args));
+        if (server && typeof server === 'object' && server.transport === 'stdio' && String(env.FLOWMESH_MCP_STDIO || '').toLowerCase() === 'off') {
+          sendJson(response, { error: 'Local-program MCP servers are disabled on this install (FLOWMESH_MCP_STDIO=off).', kind: 'disabled' }, 403);
+          return;
+        }
+        if (changesProgram && body.acknowledged !== true) {
+          sendJson(response, {
+            error: 'Adding or changing a stdio server runs a program on this computer. Acknowledge it first.',
+            needs_acknowledgement: true,
+          }, 428);
+          return;
+        }
+        if (changesProgram && confirmProgram && !(await confirmProgram(server))) {
+          sendJson(response, { error: 'You declined to let FlowMesh run that program.', kind: 'declined' }, 403);
+          return;
+        }
+        sendJson(response, { server: await mcp.upsert(server) });
+      } else if (pathname === '/api/mcp/servers/remove') {
+        if (typeof body.id !== 'string' || !(await mcp.remove(body.id))) sendJson(response, { error: 'No such server' }, 404);
+        else sendJson(response, { removed: true });
+      } else if (pathname === '/api/mcp/servers/test') {
+        if (typeof body.id !== 'string') sendJson(response, { error: 'Invalid request' }, 400);
+        else sendJson(response, await mcp.test(body.id));
+      } else if (pathname === '/api/mcp/plan') {
+        if (Object.keys(body).some((key) => key !== 'calls' && key !== 'note')) {
+          sendJson(response, { error: 'Invalid request' }, 400);
+          return;
+        }
+        const note = typeof body.note === 'string' ? body.note.slice(0, 500) : '';
+        sendJson(response, await prepareToolPlan(body.calls, '', 'builder', note));
+      } else {
+        sendJson(response, { error: 'Not found' }, 404);
+      }
+    } catch (error) {
+      if (error instanceof McpError) sendJson(response, { error: error.userMessage, kind: error.kind }, 502);
+      else if (error instanceof Error && error.constructor === Error) sendJson(response, { error: error.message }, 422);
+      else sendJson(response, { error: 'Internal error' }, 500);
+    }
+  }
+
+  async function accountCall(response, action) {
+    try {
+      sendJson(response, await action());
+    } catch (error) {
+      if (!(error instanceof WisprAccountError)) {
+        sendJson(response, { error: 'Internal error' }, 500);
+        return;
+      }
+      sendJson(response, { error: error.userMessage, kind: error.kind }, ACCOUNT_HTTP[error.kind] || 502);
+    }
+  }
+
   function sendJson(response, payload, statusCode = 200) {
     const data = Buffer.from(JSON.stringify(payload), 'utf8');
     response.writeHead(statusCode, {
@@ -659,6 +864,15 @@ function createRuntime(options = {}) {
       if (pathname === '/api/wispr') return sendJson(response, wisprOverview());
       if (pathname === '/api/wispr/latest') return sendJson(response, wisprLatest());
       if (pathname === '/api/wispr/dictionary') return sendJson(response, wisprDictionary());
+      if (pathname === '/api/mcp/servers') return sendJson(response, { servers: mcp.listServers(), limit: 20 });
+      if (pathname === '/api/mcp/tools') {
+        return void mcp.catalog().then((catalog) => sendJson(response, catalog), () => sendJson(response, { error: 'Internal error' }, 500));
+      }
+      if (pathname === '/api/mcp/presets') return sendJson(response, { presets: PRESETS });
+      if (pathname === '/api/wispr/account') return sendJson(response, account.status());
+      if (pathname === '/api/wispr/account/notes') {
+        return void accountCall(response, async () => ({ notes: await account.listNotes() }));
+      }
       serveStatic(request, response, port);
       return;
     }
@@ -685,7 +899,7 @@ function createRuntime(options = {}) {
     let tooLarge = false;
     request.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY) {
+      if (size > (pathname.startsWith('/api/mcp/') ? 40_000 : MAX_BODY)) {
         tooLarge = true;
         return;
       }
@@ -716,10 +930,21 @@ function createRuntime(options = {}) {
         return;
       }
       if (pathname === '/api/plan') {
-        const plan = await preparePlan(body.command, body.dictation);
-        if (plan === null) sendJson(response, { error: 'Command is unsupported, unclear, or not allowed' }, 422);
-        else sendJson(response, plan);
+        const { plan, message, status: planStatus } = await planCommand(body.command, body.dictation, body.context);
+        sendJson(response, plan === null ? { error: message } : plan, planStatus);
         return;
+      }
+      if (pathname.startsWith('/api/mcp/')) return void (await mcpPost(pathname, body, response));
+      if (pathname === '/api/wispr/account/connect') return void (await accountCall(response, () => account.begin()));
+      if (pathname === '/api/wispr/account/poll') return void (await accountCall(response, () => account.poll()));
+      if (pathname === '/api/wispr/account/disconnect') return void (await accountCall(response, async () => account.disconnect()));
+      if (pathname === '/api/wispr/account/note') {
+        // Only an id is accepted; the text is fetched here, never supplied.
+        if (Object.keys(body).length !== 1 || !('note_id' in body)) {
+          sendJson(response, { error: 'Invalid request' }, 400);
+          return;
+        }
+        return void (await accountCall(response, () => account.getNote(body.note_id)));
       }
       if (pathname === '/api/type') {
         // The client names a transcript id; the text is re-read from the database here,
@@ -731,13 +956,19 @@ function createRuntime(options = {}) {
         return;
       }
       if (pathname === '/api/execute') {
-        if (Object.keys(body).some((key) => key !== 'plan_id')) {
+        if (Object.keys(body).some((key) => key !== 'plan_id' && key !== 'confirm')) {
           sendJson(response, { error: 'Invalid plan' }, 400);
           return;
         }
         const planId = body.plan_id;
-        if (typeof planId !== 'string' || planId.length > 128) {
+        if (typeof planId !== 'string' || planId.length > 128 || (body.confirm !== undefined && typeof body.confirm !== 'boolean')) {
           sendJson(response, { error: 'Invalid plan' }, 400);
+          return;
+        }
+        const pendingPlan = plans.get(planId);
+        if (pendingPlan && pendingPlan.needs_confirm && body.confirm !== true) {
+          // The plan stays alive: confirming is a second, deliberate gesture.
+          sendJson(response, { error: 'This plan can change or destroy things. Confirm it explicitly.', needs_confirm: true }, 428);
           return;
         }
         const results = await executePlan(planId);
@@ -760,8 +991,9 @@ function createRuntime(options = {}) {
     });
   }
 
-  function close() {
+  async function close() {
     if (timer) clearTimeout(timer);
+    await mcp.closeAll();
     return new Promise((resolve) => server.close(() => resolve()));
   }
 
@@ -778,6 +1010,10 @@ function createRuntime(options = {}) {
     cancelPlan,
     plans,
     events,
+    mcp,
+    killMcpNow: () => mcp.killAllNow(),
+    planCommand,
+    prepareToolPlan,
   };
 }
 

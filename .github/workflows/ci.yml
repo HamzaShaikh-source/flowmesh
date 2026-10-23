@@ -38,7 +38,7 @@ jobs:
       - name: Planner parity gate (Python <-> Electron golden)
         run: python -m unittest tests.test_planner_golden -v
       - name: Electron runtime suite (loopback contract, one-use plans, allowlists)
-        run: node --test electron/test/parity.test.js electron/test/runtime.test.js
+        run: node --test electron/test/parity.test.js electron/test/runtime.test.js electron/test/wispr_account.test.js electron/test/mcp_core.test.js electron/test/mcp_runtime.test.js
 
   package-windows:
     name: package (python, windows)

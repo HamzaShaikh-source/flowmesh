@@ -28,7 +28,19 @@ from urllib.parse import urlparse
 
 from flowmesh_config import VERSION, public_settings, save, secret, settings
 from planner import FORBIDDEN, WORKFLOWS, actions_for, command_is_usable, local_route, other_intents
+import atexit
 import wispr_source
+from wispr_account import ACCOUNT, WisprAccountError
+from mcp_client import McpError
+import llm_planner
+from mcp_registry import MANAGER, public_tool
+import mcp_presets
+
+# How a connector failure maps onto HTTP. 401 is deliberately absent: it means "bad
+# FlowMesh session token" everywhere else in this API, and must not also mean
+# "your Wispr sign-in lapsed".
+ACCOUNT_HTTP = {"unavailable": 502, "bad_response": 502, "expired": 409, "denied": 403,
+                "rate_limited": 429, "unsupported": 422, "empty": 422, "bad_request": 400}
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 WEB = ROOT / "web"
@@ -171,6 +183,8 @@ def capabilities() -> dict[str, str]:
         "write_note": "ready",
         "notify": "ready" if configured and settings()["phone_service"].startswith("mobile_app_") else "not_configured",
         "light": "ready" if configured and settings()["light_entity"].startswith("light.") else "not_configured",
+        "tools": "ready" if any(s.get("enabled") for s in MANAGER._servers()) else "not_configured",
+        "model": "ready" if llm_planner.configured() else "not_configured",
     }
 
 
@@ -210,7 +224,7 @@ def jev_route(command: str, options: list[str]) -> dict:
         return {"route": None, "source": "jev_unavailable", "error": type(exc).__name__}
 
 
-def prepare_plan(command: object, dictation: dict | None = None) -> dict | None:
+def prepare_plan(command: object, dictation: dict | None = None, forced_route: str | None = None) -> dict | None:
     """Build and retain one short-lived plan for explicit later approval.
 
     `dictation` is provenance, never instruction: when the words came from the user's
@@ -220,8 +234,14 @@ def prepare_plan(command: object, dictation: dict | None = None) -> dict | None:
     if not command_is_usable(command) or FORBIDDEN.search(command.strip()):
         return None
     command = command.strip()
-    decision = jev_route(command, list(WORKFLOWS))
-    route = decision["route"] if decision["source"] == "jev" else local_route(command)
+    if forced_route in WORKFLOWS:
+        # A model chose this routine; the actions below are still produced by the fixed
+        # planner, so a model can pick a routine but never shape its effects.
+        decision = {"route": forced_route, "source": "llm", "confidence": None}
+        route = forced_route
+    else:
+        decision = jev_route(command, list(WORKFLOWS))
+        route = decision["route"] if decision["source"] == "jev" else local_route(command)
     if route not in WORKFLOWS:
         return None
     payload = {
@@ -241,6 +261,83 @@ def prepare_plan(command: object, dictation: dict | None = None) -> dict | None:
     payload["command"] = command
     if dictation:
         payload["dictation"] = dictation
+    with PLAN_LOCK:
+        now = time.monotonic()
+        for key in [key for key, value in PLANS.items() if value["expires"] < now]:
+            del PLANS[key]
+        PLANS[payload["id"]] = payload
+    return {key: value for key, value in payload.items() if key not in {"expires", "command", "dictation"}}
+
+
+def plan_command(command: object, dictation: dict | None = None, context: object = "") -> tuple[dict | None, str, int]:
+    """Plan a sentence: (plan, message, http status).
+
+    With a model configured it chooses between a routine and tool calls; its answer is
+    only a proposal and is re-validated. Without one, the deterministic rules apply
+    exactly as before. A model outage falls back to those rules and says so.
+    """
+    generic = "Command is unsupported, unclear, or not allowed"
+    if not command_is_usable(command) or FORBIDDEN.search(command.strip()):
+        return None, generic, 422
+    command = command.strip()
+    notice = ""
+    if llm_planner.configured():
+        tools = MANAGER.catalog()["tools"]
+        routines = {name: f"{title}. {text}" for name, (title, text) in WORKFLOWS.items()}
+        try:
+            decision = llm_planner.decide(command, routines, tools, context if isinstance(context, str) else "")
+        except llm_planner.LlmError as exc:
+            decision, notice = None, exc.message
+        if decision is not None:
+            if decision["kind"] == "calls":
+                try:
+                    return prepare_tool_plan(decision["calls"], command, source="llm"), "", 200
+                except ValueError as exc:
+                    return None, f"The model proposed a call FlowMesh rejected: {exc}", 422
+            if decision["kind"] == "routine":
+                plan = prepare_plan(command, dictation, forced_route=decision["routine"])
+                return (plan, "", 200) if plan else (None, generic, 422)
+            return None, decision["reply"] or generic, 422
+    plan = prepare_plan(command, dictation)
+    if plan is None:
+        return None, (f"{notice} " if notice else "") + generic, 502 if notice else 422
+    if notice:
+        plan["notice"] = f"{notice} Planned with local rules instead."
+    return plan, "", 200
+
+
+def prepare_tool_plan(calls: object, command: str = "", source: str = "builder", confidence: float | None = None,
+                      note: str = "") -> dict:
+    """A plan whose actions are MCP tool calls. Raises ValueError with a sentence.
+
+    Every call has already been checked against its tool's own schema and given a
+    FlowMesh-derived risk level. The client later references the plan by id only, so
+    the arguments reviewed on screen are the arguments that run.
+    """
+    actions = MANAGER.plan_actions(calls)
+    count = len(actions)
+    worst = "danger" if any(a["risk"] == "danger" for a in actions) else "write" if any(a["risk"] == "write" for a in actions) else "read"
+    auto_run = all(a["auto_ok"] for a in actions)
+    if not auto_run:
+        actions.append({"kind": "write_note", "target": "run_record", "label": "Save run record",
+                        "detail": "Markdown file in your FlowMesh folder, including each tool's output", "surface": "pc",
+                        "note": command or "(built in the tool builder, not dictated)"})
+    payload = {
+        "id": secrets.token_urlsafe(24),
+        "route": "tools",
+        "title": "Tool run" if count > 1 else "Tool call",
+        "description": f"{count} call{'s' if count != 1 else ''}, highest risk: {worst}. Each runs once, exactly as shown.",
+        "source": source,
+        "confidence": confidence,
+        "also": [],
+        "actions": actions,
+        "risk": worst,
+        "needs_confirm": worst == "danger",
+        "auto_run": auto_run,
+        "expires": time.monotonic() + PLAN_LIFETIME,
+        "created": timestamp(),
+        "command": command or note,
+    }
     with PLAN_LOCK:
         now = time.monotonic()
         for key in [key for key, value in PLANS.items() if value["expires"] < now]:
@@ -352,7 +449,8 @@ def record_markdown(plan: dict, receipts: list[dict]) -> str:
     command = plan["actions"][-1].get("note", "") if plan["actions"] else ""
     if not command:
         command = plan.get("command", "")
-    source = {"jev": "Jev Choice", "jev_unavailable": "local rules (Jev unreachable)"}.get(plan["source"], "local rules")
+    source = {"jev": "Jev Choice", "jev_unavailable": "local rules (Jev unreachable)", "builder": "the tool builder",
+              "llm": "a language model's proposal, checked against each tool's schema"}.get(plan["source"], "local rules")
     lines = [
         f"# FlowMesh run — {plan['title']}",
         "",
@@ -377,6 +475,12 @@ def record_markdown(plan: dict, receipts: list[dict]) -> str:
     for index, receipt in enumerate(receipts, start=1):
         detail = str(receipt.get("detail", "")).replace("|", "\\|").replace("\n", " ")
         lines.append(f"| {index} | {receipt['action']['label']} | {receipt['action']['surface']} | {receipt['status']} | {detail} |")
+    outputs = [(i, r) for i, r in enumerate(receipts, start=1) if r.get("output")]
+    if outputs:
+        lines += ["", "## Tool output (untrusted text from the tool, shown as received)", ""]
+        for index, receipt in outputs:
+            lines += [f"### {index}. {receipt['action']['label']}", "", "~~~text",
+                      str(receipt["output"]).replace("~~~", "\\~\\~\\~"), "~~~", ""]
     lines += ["", "## What was said, verbatim", "", "~~~text", command.replace("~~~", "\\~\\~\\~"), "~~~", ""]
     lines += [
         "A `sent` receipt means the request left FlowMesh. `verified` means FlowMesh observed the",
@@ -441,7 +545,8 @@ def execute_plan(plan_id: str) -> list[dict] | None:
 
     if note_slots:
         written = [
-            {"action": action, "status": slots[index]["status"], "detail": slots[index]["detail"]}
+            {"action": action, "status": slots[index]["status"], "detail": slots[index]["detail"],
+             "output": slots[index].get("output", "")}
             for index, action in enumerate(actions)
             if slots[index] is not None
         ]
@@ -454,10 +559,16 @@ def execute_plan(plan_id: str) -> list[dict] | None:
         receipt = slots[index] or {"status": "failed", "detail": "No receipt produced"}
         event = {
             "at": timestamp(),
-            "action": {key: value for key, value in action.items() if key in {"kind", "target", "label", "surface", "value"}},
+            "action": {key: value for key, value in action.items() if key in {"kind", "target", "label", "surface", "value", "risk"}},
             **receipt,
         }
-        EVENTS.append(event)
+        # The caller gets the full output. The in-memory log keeps a short head only, so
+        # 200 events can never hold 200 x 20 kB of third-party text.
+        logged = {key: value for key, value in event.items() if key != "output"}
+        if event.get("output"):
+            logged["output_preview"] = event["output"][:600]
+            logged["output_chars"] = len(event["output"])
+        EVENTS.append(logged)
         results.append(event)
     del EVENTS[:-MAX_EVENTS]
     return results
@@ -523,10 +634,36 @@ def home_state(entity: str) -> dict | None:
         return None
 
 
+def perform_mcp(action: dict) -> dict:
+    """Run one approved MCP call and report only what FlowMesh actually knows.
+
+    A tool answering is not proof its effect happened, so a good answer is `returned`,
+    never `verified`. A timeout is `unknown`: the call may or may not have landed.
+    """
+    server, tool, arguments = action.get("server"), action.get("tool"), action.get("arguments")
+    if not isinstance(server, str) or not isinstance(tool, str) or not isinstance(arguments, dict):
+        return {"status": "denied", "detail": "Tool call is malformed"}
+    try:
+        result = MANAGER.call(server, tool, arguments)
+    except McpError as exc:
+        if exc.kind == "timeout":
+            return {"status": "unknown", "detail": exc.message + " The effect may or may not have happened."}
+        gone = exc.kind in {"unavailable", "disabled", "unknown_server"}
+        return {"status": "unavailable" if gone else "failed", "detail": exc.message}
+    suffix = " Output was truncated." if result["truncated"] else ""
+    if result["is_error"]:
+        return {"status": "failed", "detail": "The tool reported an error." + suffix, "output": result["text"]}
+    return {"status": "returned",
+            "detail": "The tool returned a result. FlowMesh did not independently verify its effect." + suffix,
+            "output": result["text"]}
+
+
 def perform(action: dict) -> dict:
     """Execute one allowlisted action. No raw paths, URLs, or commands accepted."""
     kind = action.get("kind")
     target = action.get("target")
+    if kind == "mcp_call":
+        return perform_mcp(action)
     if kind == "open_url" and target in ALLOWED_URLS:
         field, fallback = ALLOWED_URLS[target]
         url = settings()[field] or fallback
@@ -602,12 +739,71 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def read_json(self) -> dict | None:
+    def mcp_post(self, body: dict) -> None:
+        """Server registry and tool plans. Needs the session token like everything else."""
+        path = self.path
+        try:
+            if path == "/api/mcp/servers":
+                server = body.get("server")
+                existing = MANAGER.get(server.get("id")) if isinstance(server, dict) else None
+                changes_program = isinstance(server, dict) and server.get("transport") == "stdio" and (
+                    existing is None or existing.get("command") != server.get("command") or existing.get("args") != server.get("args"))
+                if isinstance(server, dict) and server.get("transport") == "stdio" and os.environ.get("FLOWMESH_MCP_STDIO", "").lower() == "off":
+                    self.send_json({"error": "Local-program MCP servers are disabled on this install (FLOWMESH_MCP_STDIO=off).", "kind": "disabled"}, 403)
+                    return
+                if changes_program and body.get("acknowledged") is not True:
+                    self.send_json({"error": "Adding or changing a stdio server runs a program on this computer. Acknowledge it first.",
+                                    "needs_acknowledgement": True}, 428)
+                    return
+                self.send_json({"server": MANAGER.upsert(server)})
+            elif path == "/api/mcp/servers/remove":
+                if not isinstance(body.get("id"), str) or not MANAGER.remove(body["id"]):
+                    self.send_json({"error": "No such server"}, 404)
+                else:
+                    self.send_json({"removed": True})
+            elif path == "/api/mcp/servers/test":
+                if not isinstance(body.get("id"), str):
+                    self.send_json({"error": "Invalid request"}, 400)
+                    return
+                self.send_json(MANAGER.test(body["id"]))
+            elif path == "/api/mcp/plan":
+                if set(body) - {"calls", "note"}:
+                    self.send_json({"error": "Invalid request"}, 400)
+                    return
+                note = body.get("note") if isinstance(body.get("note"), str) else ""
+                self.send_json(prepare_tool_plan(body.get("calls"), note=note[:500]))
+            else:
+                self.send_json({"error": "Not found"}, 404)
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, 422)
+        except McpError as exc:
+            self.send_json({"error": exc.message, "kind": exc.kind}, 502)
+
+    def account_call(self, action) -> None:
+        try:
+            self.send_json(action())
+        except WisprAccountError as exc:
+            self.send_json({"error": exc.message, "kind": exc.kind}, ACCOUNT_HTTP.get(exc.kind, 502))
+
+    def read_raw_body(self) -> None:
+        """Consume the request body up front, so an early 401/403/415 never leaves
+        unread bytes on the socket (which resets the client's connection mid-send)."""
+        self._raw = None
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length < 8192:
+        except ValueError:
+            length = -1
+        limit = 40_000 if self.path.startswith("/api/mcp/") else 8192
+        if 0 < length < limit:
+            self._raw = self.rfile.read(length)
+        elif length >= limit:
+            self.close_connection = True  # refuse to read an oversized body at all
+
+    def read_json(self) -> dict | None:
+        try:
+            if not getattr(self, "_raw", None):
                 return None
-            value = json.loads(self.rfile.read(length))
+            value = json.loads(self._raw)
             return value if isinstance(value, dict) else None
         except (ValueError, json.JSONDecodeError):
             return None
@@ -659,6 +855,21 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/wispr/latest":
             self.send_json(wispr_latest())
             return
+        if self.path == "/api/mcp/servers":
+            self.send_json({"servers": MANAGER.list_servers(), "limit": 20})
+            return
+        if self.path == "/api/mcp/tools":
+            self.send_json(MANAGER.catalog())
+            return
+        if self.path == "/api/mcp/presets":
+            self.send_json({"presets": mcp_presets.PRESETS})
+            return
+        if self.path == "/api/wispr/account":
+            self.send_json(ACCOUNT.status())
+            return
+        if self.path == "/api/wispr/account/notes":
+            self.account_call(lambda: {"notes": ACCOUNT.list_notes()})
+            return
         if self.path == "/api/wispr/dictionary":
             # The user's own vocabulary. Counts and lengths only: the words themselves
             # stay on this machine.
@@ -672,6 +883,7 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:
+        self.read_raw_body()
         if not self.trusted_host():
             self.send_json({"error": "Invalid host"}, 403)
             return
@@ -695,11 +907,27 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({"error": str(exc)}, 400)
             return
         if self.path == "/api/plan":
-            plan = prepare_plan(body.get("command"), dictation=body.get("dictation"))
-            if plan is None:
-                self.send_json({"error": "Command is unsupported, unclear, or not allowed"}, 422)
-            else:
-                self.send_json(plan)
+            plan, message, status = plan_command(body.get("command"), body.get("dictation"), body.get("context", ""))
+            self.send_json(plan if plan is not None else {"error": message}, status)
+            return
+        if self.path.startswith("/api/mcp/"):
+            self.mcp_post(body)
+            return
+        if self.path == "/api/wispr/account/connect":
+            self.account_call(ACCOUNT.begin)
+            return
+        if self.path == "/api/wispr/account/poll":
+            self.account_call(ACCOUNT.poll)
+            return
+        if self.path == "/api/wispr/account/disconnect":
+            self.account_call(ACCOUNT.disconnect)
+            return
+        if self.path == "/api/wispr/account/note":
+            # Only an id is accepted; the text is fetched here, never supplied.
+            if set(body) != {"note_id"}:
+                self.send_json({"error": "Invalid request"}, 400)
+                return
+            self.account_call(lambda: ACCOUNT.get_note(body.get("note_id")))
             return
         if self.path == "/api/type":
             # The client never supplies the text. It names a transcript it just read
@@ -747,13 +975,20 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/execute":
             plan_id = body.get("plan_id")
-            if set(body) - {"plan_id"}:
-                # A client may never compose or amend actions. Only an id is
-                # accepted, and only an id that this process minted.
+            if set(body) - {"plan_id", "confirm"}:
+                # A client may never compose or amend actions. Only an id (and the
+                # person's explicit confirmation) is accepted, and only an id that
+                # this process minted.
                 self.send_json({"error": "Invalid plan"}, 400)
                 return
-            if not isinstance(plan_id, str) or len(plan_id) > 128:
+            if not isinstance(plan_id, str) or len(plan_id) > 128 or not isinstance(body.get("confirm", False), bool):
                 self.send_json({"error": "Invalid plan"}, 400)
+                return
+            with PLAN_LOCK:
+                pending = PLANS.get(plan_id)
+            if pending and pending.get("needs_confirm") and body.get("confirm") is not True:
+                # The plan stays alive: confirming is a second, deliberate gesture.
+                self.send_json({"error": "This plan can change or destroy things. Confirm it explicitly.", "needs_confirm": True}, 428)
                 return
             results = execute_plan(plan_id)
             if results is None:
@@ -769,6 +1004,10 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"cancelled": True})
             return
         self.send_json({"error": "Not found"}, 404)
+
+
+# Stdio MCP servers are child processes; never leave them running after FlowMesh exits.
+atexit.register(MANAGER.close_all)
 
 
 def serve(port: int = 0) -> ThreadingHTTPServer:

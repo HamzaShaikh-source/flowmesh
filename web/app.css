@@ -157,6 +157,9 @@ h1 em { font-size: 1.04em; }
 .quiet { color: var(--muted); }
 .muted { color: var(--muted); }
 
+/* Author display rules (.button is inline-flex) must never beat the hidden attribute. */
+[hidden] { display: none !important; }
+
 .button {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   font-family: var(--sans); font-size: .88rem; font-weight: 500;
@@ -286,7 +289,9 @@ kbd {
 
 /* Where the words in the command box came from. Quiet by design: a claim about
    provenance, so it appears only once there is something true to say. */
-.provenance { font-size: 11px; color: var(--muted); margin-left: 12px; }
+/* Own row: the sentence can be long and must never squeeze the step label and counter. */
+.panel-head { flex-wrap: wrap; }
+.provenance { order: 3; flex-basis: 100%; font-size: 11px; line-height: 1.5; color: var(--muted); }
 .provenance[hidden] { display: none; }
 
 /* Wispr Flow strip — desktop runtimes only. States are earned, never assumed. */
@@ -296,6 +301,22 @@ kbd {
 .wispr-state[data-state="connected"] { color: var(--lime); }
 .wispr-state[data-state="locked"], .wispr-state[data-state="unsupported"] { color: var(--amber); }
 .wispr-state[data-state="not_found"], .wispr-state[data-state="no_history"] { color: var(--red); }
+
+/* Wispr account (device sign-in + Scratchpad notes). The code is the one thing the
+   person must read aloud or copy, so it gets the largest type in the strip. */
+.account-strip { margin-top: 10px; }
+.device-code { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 12px; padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: var(--radius); }
+.device-code .quiet { flex-basis: 100%; font-size: 10px; letter-spacing: .1em; }
+.device-code .code { font-size: 1.6rem; letter-spacing: .22em; color: var(--lime); user-select: all; }
+.device-code[hidden], .note-list[hidden] { display: none; }
+.note-list { list-style: none; margin: 12px 0 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); max-height: 220px; overflow-y: auto; }
+.note-list li + li { border-top: 1px solid var(--line); }
+.note-item { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; padding: 9px 12px; background: transparent; border: 0; color: var(--ink-dim); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.note-item:hover, .note-item:focus-visible { background: var(--lime-soft); color: var(--ink); outline: none; }
+.note-item .when { flex: none; font-size: 10px; letter-spacing: .06em; color: var(--muted); }
+.note-empty { padding: 12px; font-size: 13px; color: var(--muted); }
+.wispr-state[data-state="pending"] { color: var(--amber); }
+.wispr-state[data-state="expired"], .wispr-state[data-state="denied"] { color: var(--red); }
 
 /* A real capture of the connector, shown only where the live panel cannot exist. */
 .connector-clip { margin: 14px 0 0; display: flex; flex-direction: column; gap: 10px; }
