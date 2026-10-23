@@ -8,9 +8,9 @@ Built for **No Hands: The Wispr Challenge** (WeMakeDevs × Wispr Flow), Builders
 
 - **Try it in the browser — no install:** https://flowmesh-nohands.netlify.app/
 - **Desktop app — download and run:** https://github.com/HamzaShaikh-source/flowmesh/releases
-  - `FlowMesh-1.4.1-win-x64.exe` — Electron app for **Windows**, a single portable executable (no install; 99 MiB)
-  - `FlowMesh-1.4.1-mac-arm64.dmg` — Electron app for **Apple-silicon macOS**
-  - `FlowMesh-1.4.1-linux-x86_64.AppImage` — Electron app for **Linux x64** (`chmod +x`, then run)
+  - `FlowMesh-1.5.0-win-x64.exe` — Electron app for **Windows**, a single portable executable (no install; 99 MiB)
+  - `FlowMesh-1.5.0-mac-arm64.dmg` — Electron app for **Apple-silicon macOS**
+  - `FlowMesh-1.5.0-linux-x86_64.AppImage` — Electron app for **Linux x64** (`chmod +x`, then run)
   - `FlowMesh-Windows.zip` — the smaller Windows-only Python build (13 MiB, no Node)
 - **Source:** this repository. Stdlib-only runtime, no build step for the UI.
 
@@ -25,6 +25,13 @@ treated as untrusted text, and it still goes through plan → approve → run. D
 registration and the authorization redirect to Wispr's real login page were verified against Wispr's live servers; the step
 after a human approves needs the owner's login and is **not** yet verified —
 [details and evidence](docs/WISPR-CONNECTOR.md#wispr-account-the-supported-route).
+
+**Also new — a real app, and Wispr inside it.** FlowMesh is now seven pages (Home, Flow, Tools, Wispr,
+History, Settings, About) in Wispr Flow's own visual language, with a voice dock on every page. On the
+desktop app, hold your Wispr key anywhere in the window and talk: new dictations are picked up from
+Wispr's local history and planned automatically, and short spoken commands ("go to tools", "cancel",
+"read it back") act on the app. Nothing runs without approval. What this is and is not:
+[docs/VOICE.md](docs/VOICE.md).
 
 **Also new — hands for anything, behind the same approval.** The desktop apps now connect any
 [MCP](https://modelcontextprotocol.io) server (files, git, GitHub, a real browser, messaging,
@@ -93,7 +100,7 @@ Nothing is shared between the browser page and the desktop runtimes except the p
 
 **Electron app (Windows, macOS, Linux)**
 
-1. Download the artifact for your OS from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases): `FlowMesh-1.4.1-win-x64.exe` (portable — double-click it), `FlowMesh-1.4.1-mac-arm64.dmg` (Apple silicon), or `FlowMesh-1.4.1-linux-x86_64.AppImage`.
+1. Download the artifact for your OS from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases): `FlowMesh-1.5.0-win-x64.exe` (portable — double-click it), `FlowMesh-1.5.0-mac-arm64.dmg` (Apple silicon), or `FlowMesh-1.5.0-linux-x86_64.AppImage`.
 2. Run it. No installer, no admin, no Node install required.
 3. Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper will warn: *More info → Run anyway* on Windows, *right-click → Open* on macOS.
 4. The app opens its own window on `127.0.0.1` with a per-launch session token in the URL.
@@ -163,8 +170,8 @@ Full detail: [docs/SECURITY.md](docs/SECURITY.md).
 ## Tests and what has actually been run
 
 ```bash
-python -m unittest discover -s tests -v   # 192 tests: planner, HTTP contract, adapters, artifacts, parity, Wispr account, MCP, model planner
-npm --prefix electron test                # 101 tests: Electron runtime, planner golden, Wispr account, MCP, model planner
+python -m unittest discover -s tests -v   # 198 tests: planner, HTTP contract, adapters, artifacts, parity, Wispr account, MCP, model planner
+npm --prefix electron test                # 118 tests: Electron runtime, planner golden, Wispr account, MCP, model planner
 node --check web/core.js && node --check web/ui.js
 ```
 
@@ -186,6 +193,8 @@ mcp_client.py         MCP stdio/HTTP client (hardened)
 mcp_registry.py       MCP servers, risk levels, schema checks, tool plans
 llm_planner.py        model proposes a routine or tool calls; never runs them
 web/tools.js          tools workbench, builder, demo tools, command palette
+web/pages.js          hash router, Home dashboard, History
+web/voice.js          live Wispr pickup, voice commands, mic, read-aloud
 desktop.py            launcher: window / browser / headless
 tests/                planner, HTTP/security, adapters, artifacts, parity
 docs/                 decision record, quickstart, architecture, security, electron, verification, Wispr connector, demo script, submission kit

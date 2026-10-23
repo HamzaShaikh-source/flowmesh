@@ -29,6 +29,10 @@ const { createManager } = require('./mcp_registry.js');
 const { PRESETS } = require('./mcp_presets.js');
 const llm = require('./llm_planner.js');
 
+const RUN_NAME = /^flowmesh-[A-Za-z0-9_-]{1,100}\.md$/;
+const MAX_RECORD_BYTES = 300000;
+const MAX_RUNS_LISTED = 100;
+
 const PLAN_LIFETIME = 300;
 const MAX_EVENTS = 200;
 // Wispr connector: only a dictation this recent is actionable, and only this much of
@@ -139,6 +143,53 @@ function recordMarkdown(plan, receipts) {
     '',
   );
   return lines.join('\n');
+}
+
+/** Run records FlowMesh itself wrote, newest first. Names only ever come from this listing. */
+function listRuns(env = process.env) {
+  const directory = artifactDir(env);
+  const entries = [];
+  for (const name of fs.readdirSync(directory)) {
+    if (!RUN_NAME.test(name)) continue;
+    const file = path.join(directory, name);
+    let stat;
+    try {
+      stat = fs.statSync(file);
+    } catch {
+      continue;
+    }
+    if (!stat.isFile()) continue;
+    let title = '';
+    try {
+      const fd = fs.openSync(file, 'r');
+      const buffer = Buffer.alloc(200);
+      const read = fs.readSync(fd, buffer, 0, 200, 0);
+      fs.closeSync(fd);
+      title = buffer.toString('utf8', 0, read).split(/\r?\n/)[0].replace(/^# FlowMesh run — /, '').replace(/^# /, '').trim().slice(0, 80);
+    } catch {
+      /* the listing still works without a title */
+    }
+    entries.push({ name, bytes: stat.size, title, modified: stat.mtime.toISOString().replace(/\.\d{3}Z$/, 'Z') });
+  }
+  entries.sort((a, b) => (a.modified < b.modified ? 1 : a.modified > b.modified ? -1 : 0));
+  return entries.slice(0, MAX_RUNS_LISTED);
+}
+
+/** One record by name. The name must match the generated pattern and resolve inside the
+    artifact directory, so no path, traversal or other file can ever be read through this. */
+function readRun(name, env = process.env) {
+  if (typeof name !== 'string' || !RUN_NAME.test(name)) return null;
+  const directory = path.resolve(artifactDir(env));
+  const file = path.resolve(directory, name);
+  if (path.dirname(file) !== directory) return null;
+  try {
+    const stat = fs.statSync(file);
+    if (!stat.isFile()) return null;
+    const data = fs.readFileSync(file).subarray(0, MAX_RECORD_BYTES);
+    return { name, text: data.toString('utf8'), truncated: stat.size > MAX_RECORD_BYTES };
+  } catch {
+    return null;
+  }
 }
 
 function createRuntime(options = {}) {
@@ -887,6 +938,11 @@ function createRuntime(options = {}) {
       if (pathname === '/api/wispr') return sendJson(response, wisprOverview());
       if (pathname === '/api/wispr/latest') return sendJson(response, wisprLatest());
       if (pathname === '/api/wispr/dictionary') return sendJson(response, wisprDictionary());
+      if (pathname === '/api/runs') return sendJson(response, { runs: listRuns(env) });
+      if (pathname.startsWith('/api/runs/')) {
+        const record = readRun(decodeURIComponent(pathname.slice('/api/runs/'.length)), env);
+        return sendJson(response, record || { error: 'No such record' }, record ? 200 : 404);
+      }
       if (pathname === '/api/mcp/servers') return sendJson(response, { servers: mcp.listServers(), limit: 20 });
       if (pathname === '/api/mcp/tools') {
         return void mcp.catalog().then((catalog) => sendJson(response, catalog), () => sendJson(response, { error: 'Internal error' }, 500));
@@ -1056,4 +1112,5 @@ module.exports = {
   ALLOWED_APPS,
   ALLOWED_URLS,
   CSP,
+  RUN_NAME,
 };

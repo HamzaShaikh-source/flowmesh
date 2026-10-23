@@ -59,6 +59,25 @@ class DriftTest(unittest.TestCase):
             self.assertTrue({"id", "label", "group", "description", "transport", "inputs", "docs"} <= set(preset), preset["id"])
             self.assertIn(preset["transport"], {"stdio", "http"})
 
+    def test_both_runtimes_serve_history_with_the_same_name_rule(self):
+        for source, marker in ((BRIDGE, '"/api/runs"'), (RUNTIME, "'/api/runs'")):
+            self.assertIn(marker, source)
+        for source, marker in ((BRIDGE, '"/api/runs/"'), (RUNTIME, "'/api/runs/'")):
+            self.assertIn(marker, source)
+
+    @unittest.skipUnless(shutil.which("node"), "node is not installed")
+    def test_the_record_name_rule_accepts_and_rejects_the_same_names(self):
+        import bridge
+
+        names = ["flowmesh-20261023-142205-tools-abc123.md", "flowmesh-a.md", "flowmesh-.md", "flowmesh-a.txt", "notes.md",
+                 "../flowmesh-a.md", "flowmesh-a/b.md", "flowmesh-a b.md", "flowmesh-" + "a" * 100 + ".md",
+                 "flowmesh-" + "a" * 101 + ".md", "flowmesh-A_b-9.md", "flowmesh-a.md\n", "FLOWMESH-a.md", "flowmesh-é.md"]
+        script = ("const {RUN_NAME}=require('./electron/runtime.js');"
+                  "process.stdout.write(JSON.stringify(JSON.parse(process.argv[1]).map(n=>RUN_NAME.test(n))))")
+        out = subprocess.run(["node", "-e", script, json.dumps(names)], cwd=ROOT, capture_output=True, encoding="utf-8", check=True).stdout
+        python = [bool(bridge.RUN_NAME.fullmatch(n)) for n in names]
+        self.assertEqual(json.loads(out), python)
+
     def test_the_execute_gate_and_receipt_vocabulary_exist_in_both(self):
         for source in (BRIDGE, RUNTIME):
             self.assertIn("returned", source)

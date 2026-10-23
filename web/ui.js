@@ -19,6 +19,8 @@
     dictation: null,
     wordsFrom: null,
     context: '',
+    sessionRuns: [],
+    planShownAt: 0,
   };
 
   // The command box's own maxlength. Kept here so the trim and the counter agree.
@@ -133,6 +135,7 @@
 
   function setBrowserMode() {
     S.mode = 'browser';
+    document.body.setAttribute('data-mode', 'browser');
     var badge = $('runtimeBadge');
     badge.setAttribute('data-state', 'browser');
     $('runtimeText').textContent = 'Browser edition · live';
@@ -143,32 +146,17 @@
     notifyMode(null);
   }
 
-  /* The Wispr integration reads a local database, so this page cannot show it live.
-     Hiding the panel entirely would hide the flagship feature from every judge who
-     only opens the link, so it is shown with an honest desktop-only state and a
-     pointer to the build that can actually do it. */
+  /* The hosted page cannot read a local database. The Wispr page carries its own static
+     explanation and the recorded clip for this mode, so the live strips simply stay hidden. */
   function paintWisprDesktopOnly() {
-    $('wisprStrip').hidden = false;
-    var badge = $('wisprState');
-    badge.textContent = 'desktop only';
-    badge.setAttribute('data-state', 'desktop_only');
-    $('wisprDetail').textContent =
-      'This reads your own Wispr Flow history on your machine, so the browser edition cannot do it — ' +
-      'a web page has no access to your files. Download the desktop app and hold your Wispr key, speak, ' +
-      'then press "Use my last dictation": FlowMesh pulls that sentence read-only and hands it to the ' +
-      'plan → approve → run loop. Nothing here is simulated and nothing is claimed on this page.';
-    $('wisprStats').textContent = 'Local history, read-only · Scratchpad notes through Wispr’s official sign-in (desktop app)';
-    $('pullDictation').hidden = true;
-    $('typeDictation').hidden = true;
-    /* The clip is a real capture of this connector against a real database, recorded from
-       the desktop runtime. It is shown only here, where the live panel cannot exist, so a
-       judge who never installs anything still sees the feature working. */
-    var clip = $('connectorClip');
-    if (clip) clip.hidden = false;
+    $('wisprStrip').hidden = true;
+    $('accountStrip').hidden = true;
+    $('flowWispr').hidden = true;
   }
 
   function setDesktopMode(status) {
     S.mode = 'desktop';
+    document.body.setAttribute('data-mode', 'desktop');
     S.caps = status.capabilities || {};
     S.artifactDir = status.artifact_dir || '';
     var badge = $('runtimeBadge');
@@ -184,6 +172,7 @@
     paintDesktopCell('light_desktop', 'Desk lamp brightness (Home Assistant)', S.caps.light, 'not_configured');
     paintDesktopCell('jev', 'Jev Choice routing', S.caps.jev, 'local_rules');
 
+    startWisprWatch();
     paintDesktopCell('tools_desktop', 'MCP tools', S.caps.tools, 'ready');
     paintDesktopCell('model', 'Language-model planner', S.caps.model, 'ready');
 
@@ -245,6 +234,7 @@
     // exactly the same code the buttons do and the plan stays visible on screen.
     window.addEventListener('hashchange', function () {
       var action = window.location.hash.replace('#', '');
+      if (action !== 'pull' && action !== 'approve') return; // a page route: the router owns it
       history.replaceState(null, '', window.location.pathname + window.location.search);
       if (action === 'pull') pullDictation();
       else if (action === 'approve') {
@@ -268,6 +258,8 @@
     $('contextClear').addEventListener('click', clearContext);
     $('cancelButton').addEventListener('click', cancelPlan);
     $('pullDictation').addEventListener('click', pullDictation);
+    $('flowPull').addEventListener('click', pullDictation);
+    $('flowType').addEventListener('click', typeDictation);
     $('accountConnect').addEventListener('click', connectAccount);
     $('accountBrowse').addEventListener('click', browseNotes);
     $('accountDisconnect').addEventListener('click', disconnectAccount);
@@ -348,7 +340,9 @@
   }
 
   function showPlan(plan) {
+    if (window.FlowMeshRouter) window.FlowMeshRouter.go('flow');
     S.plan = plan;
+    S.planShownAt = Date.now();
     S.used = false;
     S.expiresAt = (plan.expires_at || (Date.now() / 1000 + 300)) * 1000;
     $('planEmpty').hidden = true;
@@ -417,7 +411,8 @@
 
     $('planPanel').classList.remove('consumed');
     $('cancelButton').hidden = false;
-    $('approveButton').textContent = 'Approve & run ↗';
+    $('approveLabel').textContent = 'Approve & run';
+    $('approveIcon').hidden = false;
     $('approveButton').disabled = Boolean(plan.needs_confirm) || Boolean(plan.auto_run);
     clearInterval(S.tick);
     S.tick = setInterval(tickExpiry, 500);
@@ -430,6 +425,7 @@
       $('approveButton').focus();
     }
     scrollIntoViewSoft($('reviewPanel'));
+    document.dispatchEvent(new CustomEvent('flowmesh:plan', { detail: { plan: plan } }));
   }
 
   function scrollIntoViewSoft(node) {
@@ -684,11 +680,19 @@
     $('planPanel').classList.add('consumed');
     var approve = $('approveButton');
     approve.disabled = true;
-    approve.textContent = 'Approved · single use consumed';
+    $('approveLabel').textContent = 'Approved · single use consumed';
+    $('approveIcon').hidden = true;
     $('cancelButton').hidden = true;
     $('planExpiry').textContent = 'Run finished ' + new Date().toLocaleTimeString() + ' · this plan can never run again';
     var verified = receipts.filter(function (r) { return r.status === 'verified'; }).length;
     var returned = receipts.filter(function (r) { return r.status === 'returned'; }).length;
+    var failed = receipts.filter(function (r) { return r.status === 'failed' || r.status === 'denied'; }).length;
+    if (S.mode === 'browser' && S.record) {
+      S.sessionRuns.unshift({ name: S.record.name, title: plan.title, text: S.record.text, bytes: S.record.bytes, modified: new Date().toISOString() });
+    }
+    document.dispatchEvent(new CustomEvent('flowmesh:run', { detail: {
+      title: plan.title, total: receipts.length, verified: verified, returned: returned, failed: failed,
+    } }));
     $('nextStepBar').hidden = !(S.mode === 'desktop' && receipts.some(function (r) { return r.output; }));
     toast('Run complete \u00b7 ' + verified + ' verified' + (returned ? ', ' + returned + ' returned by tools' : '') +
       ' of ' + receipts.length + ' steps. Nothing reached beyond what the receipts say.');
@@ -814,10 +818,14 @@
 
   function loadWispr() {
     if (S.mode !== 'desktop') return;
-    get('/api/wispr').then(paintWispr).catch(function () {
-      // A runtime too old to answer 404s here. Say nothing rather than guess.
-      $('wisprStrip').hidden = true;
-    });
+    get('/api/wispr').then(function (info) {
+      S.wisprInfo = info;
+      paintWispr(info);
+      document.dispatchEvent(new CustomEvent('flowmesh:wispr', { detail: info }));
+    }).catch(function () {
+      // A runtime too old to answer 404s here. Keep whatever is on screen rather than guess.
+      if (!S.wisprInfo) $('wisprStrip').hidden = true;
+    }).catch(function () { /* nothing further to do */ });
   }
 
   function paintWispr(info) {
@@ -848,6 +856,24 @@
     $('pullDictation').hidden = false;
     $('pullDictation').textContent = 'Use my last dictation · ' + ago(info.latest.age_seconds);
     $('typeDictation').hidden = false;
+    paintFlowShortcut(info);
+  }
+
+  /* The Flow page keeps one compact Wispr shortcut so the common path never needs the Wispr page. */
+  function paintFlowShortcut(info) {
+    var ready = Boolean(info && info.state === 'connected' && info.latest);
+    $('flowWispr').hidden = !ready;
+    if (ready) $('flowPullLabel').textContent = 'Use my last dictation · ' + ago(info.latest.age_seconds);
+  }
+
+  /* The dictation panel used to load once, so after you spoke it still said "nothing fresh"
+     until a reload. Re-read the (cheap, local) overview while the window is in use. */
+  var wisprWatch = null;
+  function startWisprWatch() {
+    if (wisprWatch || S.mode !== 'desktop') return;
+    wisprWatch = setInterval(function () { if (!document.hidden && S.mode === 'desktop') loadWispr(); }, 4000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) loadWispr(); });
+    window.addEventListener('focus', loadWispr);
   }
 
   /* ---------------- Wispr account: Scratchpad notes (desktop runtimes only) ----------------
@@ -1231,6 +1257,16 @@
     focusCommand: function () { $('commandInput').focus(); scrollIntoViewSoft($('commandInput')); },
     pullDictation: pullDictation,
     connectAccount: connectAccount,
+    plan: function () { return S.plan; },
+    planAge: function () { return S.planShownAt ? Date.now() - S.planShownAt : Infinity; },
+    sessionRuns: function () { return S.sessionRuns; },
+    caps: function () { return S.caps; },
+    isTyping: function () {
+      var a = document.activeElement;
+      return Boolean(a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT' || a.isContentEditable));
+    },
+    copy: copy,
+    download: download,
     reduced: function () { return REDUCED; },
   };
 
