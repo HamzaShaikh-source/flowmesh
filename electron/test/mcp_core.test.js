@@ -259,8 +259,8 @@ test('presets: every template is a valid server once its inputs are filled', () 
   for (const preset of PRESETS) {
     const fill = (value) => String(value).replace(/\{(\w+)\}/g, 'x');
     const server = preset.transport === 'stdio'
-      ? { id: preset.id, transport: 'stdio', command: preset.command, args: preset.args.map(fill) }
-      : { id: preset.id, transport: 'http', url: preset.url, headers: Object.fromEntries(Object.entries(preset.headers || {}).map(([k, v]) => [k, fill(v)])) };
+      ? { id: preset.id, transport: 'stdio', command: preset.command, args: preset.args.map(fill), env: Object.fromEntries(Object.entries(preset.env || {}).map(([k, v]) => [k, fill(v)])) }
+      : { id: preset.id, transport: 'http', url: preset.url === '{url}' ? 'https://x.example/mcp' : preset.url, headers: Object.fromEntries(Object.entries(preset.headers || {}).map(([k, v]) => [k, fill(v)])) };
     assert.doesNotThrow(() => registry.validateServer(server), preset.id);
   }
 });

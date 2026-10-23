@@ -80,13 +80,47 @@ audio capture for its own loopback page. The sign-in callback (`/oauth/wispr/cal
 route that needs no session token; it is guarded by an unguessable single-use `state`, answers under
 a locked-down CSP, and its one-time code is redacted from the request log.
 
+## Coding agents (added after 1.5)
+
+Full detail in [AGENTS.md](AGENTS.md). Running a coding agent is the highest-impact thing FlowMesh
+does, because the agent edits files and can run commands. The controls:
+
+- **Sign-in stays with the vendor.** FlowMesh never sees, stores or proxies a Claude, ChatGPT/Codex
+  or Google token. It only reads a fixed fact from each CLI's own status command and opens that CLI's
+  own login in a real terminal.
+- **Risk is the permission mode, chosen by FlowMesh.** Plan/read-only is `read`, edit is `write`, and
+  every mode that bypasses the agent's own approvals (or that FlowMesh cannot restrict, as with
+  OpenCode headless) is `danger` and needs the second confirmation. A coding plan is never auto-run.
+- **Registered folders only**, resolved to their real path when planned and again when run; drive
+  roots, the home folder itself and system folders are refused.
+- **The task never reaches a shell or option parser**: standard input or a private temp file where the
+  CLI allows, otherwise an argument that may not start with a dash; Windows `.cmd` shims refuse
+  `& | < > ^ % !` and quotes.
+- **Child environment** is yours minus `FLOWMESH_*` and `TYPESAFE_*`.
+- **Output is untrusted**: escapes stripped, capped, rendered as text. Runs have a timeout, at most 3
+  run at once, and cancel kills the process tree.
+- **Receipts are observations, not judgements**: `returned` at best, plus what git saw change.
+- `FLOWMESH_AGENTS=off` disables the feature.
+
+A process running as the same user can read the loopback token and approve its own coding plan, as
+with MCP tools (see Known limits). Coding agents raise the stakes of that, so the danger modes need a
+second gesture and the feature can be switched off.
+
+## Messaging templates
+
+The Discord, Slack, Notion and Agent Switch entries on the Tools page are *templates* that fill in a
+documented MCP server command. FlowMesh does not bundle, vendor or verify those servers. Their tokens
+are entered in a password field, written into the credential store (or a `0600` file) and returned to
+the page masked, like any other server credential. The Agent Switch template points at a Switch
+instance **you** host; it is not a hosted integration.
+
 ## Receipt integrity
 
 `returned` (an MCP tool answered) is likewise not `verified`, and a tool timeout is `unknown`. `sent` means "handed to the OS or an HTTP client". It is never promoted to `verified` without an observation: a spawned process, a scheduled timer, a file hash, or a Home Assistant state read-back that equals the requested brightness. This is enforced in the adapters, and `tests/test_actions.py` asserts that an unconfigured integration can never produce a success-looking status.
 
 ## Known limits (stated, not hidden)
 
-- The desktop bridge is protected by a loopback bind plus a token, not by OS-level IPC permissions: another process running **as the same user** that reads the token from the launch URL could drive it. For the built-in routines that is no more than a human at the keyboard could do. **With MCP configured it can also call any tool on an already-registered server after producing a plan (it can approve its own plan, as the page can), and on the Python runtime it can register a new local program, since only the Electron app has a native confirmation.** Same-user local malware can do all of this without FlowMesh anyway, but it is a real change; set `FLOWMESH_MCP_STDIO=off` or do not register servers you do not want reachable.
+- The desktop bridge is protected by a loopback bind plus a token, not by OS-level IPC permissions: another process running **as the same user** that reads the token from the launch URL could drive it. For the built-in routines that is no more than a human at the keyboard could do. **With coding agents configured it can also plan and approve a task for an installed agent inside a registered project folder.** **With MCP configured it can also call any tool on an already-registered server after producing a plan (it can approve its own plan, as the page can), and on the Python runtime it can register a new local program, since only the Electron app has a native confirmation.** Same-user local malware can do all of this without FlowMesh anyway, but it is a real change; set `FLOWMESH_MCP_STDIO=off` or do not register servers you do not want reachable.
 - The Windows build is unsigned, so SmartScreen may warn on first run.
 - Home Assistant over plain `http://` on your LAN is allowed if you configure it; use `https://` or a local-only host if you care about that hop.
 - There is no multi-user model: one machine, one user, no accounts, no remote access.

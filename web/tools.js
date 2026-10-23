@@ -530,6 +530,7 @@
     if (preset.transport === 'stdio') {
       form.elements.command.value = preset.command;
       form.elements.args.value = preset.args.join('\n');
+      form.elements.env.value = Object.keys(preset.env || {}).map(function (k) { return k + '=' + preset.env[k]; }).join('\n');
     } else {
       form.elements.url.value = preset.url;
       form.elements.headers.value = Object.keys(preset.headers || {}).map(function (k) { return k + ': ' + preset.headers[k]; }).join('\n');
@@ -573,7 +574,7 @@
       lines(form.elements.env.value).forEach(function (line) {
         var at = line.indexOf('=');
         if (at < 1) throw new Error('Environment lines look like NAME=value.');
-        env[line.slice(0, at).trim()] = line.slice(at + 1);
+        env[line.slice(0, at).trim()] = fill(line.slice(at + 1), values);
       });
       if (Object.keys(env).length) server.env = env;
     } else {
@@ -642,6 +643,7 @@
       } });
     });
     if (window.FlowMeshVoice) items = items.concat(window.FlowMeshVoice.paletteItems());
+    if (window.FlowMeshCode && UI.mode() === 'desktop') items = items.concat(window.FlowMeshCode.paletteItems());
     return items;
   }
 

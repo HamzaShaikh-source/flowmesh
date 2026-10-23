@@ -336,6 +336,7 @@ if (!single) {
     globalShortcut.unregisterAll();
     if (runtime) {
       runtime.killMcpNow();
+      runtime.killAgentsNow();
       runtime.close();
     }
   });

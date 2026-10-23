@@ -59,6 +59,20 @@ class DriftTest(unittest.TestCase):
             self.assertTrue({"id", "label", "group", "description", "transport", "inputs", "docs"} <= set(preset), preset["id"])
             self.assertIn(preset["transport"], {"stdio", "http"})
 
+    def test_every_placeholder_in_a_preset_has_an_input_and_secrets_are_masked(self):
+        for preset in mcp_presets.PRESETS:
+            keys = {i["key"] for i in preset["inputs"]}
+            text = json.dumps([preset.get("args"), preset.get("url"), preset.get("headers"), preset.get("env")])
+            used = set(re.findall(r"\{(\w+)\}", text))
+            self.assertEqual(used, keys, preset["id"])
+            for name, value in (preset.get("env") or {}).items():
+                self.assertRegex(value, r"^\{\w+\}$", f"{preset['id']}.{name} must be a placeholder, never a baked-in value")
+                self.assertTrue(next(i for i in preset["inputs"] if i["key"] == value[1:-1]).get("secret"), f"{preset['id']}.{name}")
+
+    def test_the_messaging_templates_exist(self):
+        ids = {p["id"] for p in mcp_presets.PRESETS}
+        self.assertTrue({"discord", "slack", "notion", "switch"} <= ids)
+
     def test_both_runtimes_serve_history_with_the_same_name_rule(self):
         for source, marker in ((BRIDGE, '"/api/runs"'), (RUNTIME, "'/api/runs'")):
             self.assertIn(marker, source)

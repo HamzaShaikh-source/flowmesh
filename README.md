@@ -1,117 +1,161 @@
 # FlowMesh
 
-**Say the work. See it happen.**
+**Say the work. Approve the plan. Keep the receipt.**
 
-FlowMesh turns one dictated sentence into a bounded, line-by-line plan you approve once — then performs the actions you allowed, and shows an honest receipt for each one.
+FlowMesh turns one spoken or typed sentence into a plan you read and approve once. Then it does exactly
+what the plan said (open things, start timers, call any [MCP](https://modelcontextprotocol.io) tool, hand
+a coding task to your own coding agent) and shows an honest receipt for every step. It is built around
+[Wispr Flow](https://wisprflow.ai): hold your Wispr key, talk, and FlowMesh picks the sentence up and plans it.
 
 Built for **No Hands: The Wispr Challenge** (WeMakeDevs × Wispr Flow), Builders track, by Hamza Shaikh.
 
-- **Try it in the browser — no install:** https://flowmesh-nohands.netlify.app/
-- **Desktop app — download and run:** https://github.com/HamzaShaikh-source/flowmesh/releases
-  - `FlowMesh-1.5.0-win-x64.exe` — Electron app for **Windows**, a single portable executable (no install; 99 MiB)
-  - `FlowMesh-1.5.0-mac-arm64.dmg` — Electron app for **Apple-silicon macOS**
-  - `FlowMesh-1.5.0-linux-x86_64.AppImage` — Electron app for **Linux x64** (`chmod +x`, then run)
-  - `FlowMesh-Windows.zip` — the smaller Windows-only Python build (13 MiB, no Node)
-- **Source:** this repository. Stdlib-only runtime, no build step for the UI.
+- **Try it in the browser, no install:** https://flowmesh-nohands.netlify.app/
+- **Desktop app:** https://github.com/HamzaShaikh-source/flowmesh/releases (Windows portable `.exe`,
+  Apple-silicon `.dmg`, Linux `.AppImage`, plus a smaller Windows-only Python build). Coding agents, MCP
+  servers and the Wispr connector need the desktop app; the hosted page cannot start a program.
+- **Source:** this repository. Stdlib-only Python runtime, no build step for the UI.
 
-**New in this build — FlowMesh reads Wispr Flow directly.** Hold your Wispr key, speak, then press **Use my last dictation**: FlowMesh pulls that sentence out of your own Wispr Flow history, read-only, and hands it to the plan-approve-run loop. No copying, no retyping, no second app to alt-tab to. It reads a fixed allow-list of metadata columns and never touches the audio, screenshots or surrounding app text that live in the same file. If Wispr Flow is not installed, the panel says so instead of pretending. Details: [`docs/WISPR-CONNECTOR.md`](docs/WISPR-CONNECTOR.md).
+## What you can do with it
 
-**Also new — sign in to Wispr, read your Scratchpad notes.** The history reader above is
-unsupported by Wispr (it is a local file). So the desktop apps now also connect to Wispr's own
-OAuth server and official MCP: press **Connect Wispr account**, type a short code on Wispr's
-page (browser sign-in with PKCE; no password reaches FlowMesh), then **Browse Scratchpad notes** and load
-one into the command box. Only the two Scratchpad note tools are ever called, the note is
-treated as untrusted text, and it still goes through plan → approve → run. Discovery,
-registration and the authorization redirect to Wispr's real login page were verified against Wispr's live servers; the step
-after a human approves needs the owner's login and is **not** yet verified —
-[details and evidence](docs/WISPR-CONNECTOR.md#wispr-account-the-supported-route).
+| You say or type | What happens | Where |
+| --- | --- | --- |
+| "Start a 25 minute research sprint, open the board, notify my phone" | a fixed routine plans every step; you approve; each step returns a receipt | Flow |
+| "Ask Codex to fix the failing test" | your installed coding agent works in a project folder you registered, in a mode you chose | Code |
+| "Post the standup summary in #team" | an MCP tool call (Discord, Slack, Notion, files, git, GitHub, a browser, your own server) shown with its exact arguments | Tools |
+| Hold your Wispr key anywhere in the app | the new dictation is picked up and planned automatically | every page |
+| "Go to tools", "read it back", "cancel" | short whole-sentence voice commands act on the app itself | every page |
 
-**Also new — a real app, and Wispr inside it.** FlowMesh is now seven pages (Home, Flow, Tools, Wispr,
-History, Settings, About) in Wispr Flow's own visual language, with a voice dock on every page. On the
-desktop app, hold your Wispr key anywhere in the window and talk: new dictations are picked up from
-Wispr's local history and planned automatically, and short spoken commands ("go to tools", "cancel",
-"read it back") act on the app. Nothing runs without approval. What this is and is not:
-[docs/VOICE.md](docs/VOICE.md).
+Nothing runs until you approve. A plan that can change or destroy things needs a second, deliberate
+confirmation. Each approved plan runs once and expires in five minutes.
 
-**Also new — hands for anything, behind the same approval.** The desktop apps now connect any
-[MCP](https://modelcontextprotocol.io) server (files, git, GitHub, a real browser, messaging,
-your own) and an optional language model that can turn one sentence into a validated tool plan.
-Every call is shown with its server, tool, exact arguments and a FlowMesh-derived risk level
-(`read` / `write` / `danger`); you approve once, each call runs once, and receipts are honest
-(`returned` is not `verified`). The hosted page ships five in-page demo tools so you can try the
-flow without installing anything. Details, limits and what is not verified:
-[docs/MCP.md](docs/MCP.md).
+## The pages
 
----
+Eight pages in Wispr Flow's own visual language (cream paper, ink type, EB Garamond over Figtree, lilac
+and forest accents), with a voice dock on every page and a command palette on `Ctrl K`.
 
-## The problem it solves
-
-My workday is a stream of small, real switches: open the board for this call, start a focus block, ping my phone that I'm heads-down, dim the lamp, jot the follow-up before it evaporates. Each one is trivial. Together they cost the first ten minutes of every block and they are exactly the moments where dictation is faster than a mouse.
-
-The failure mode of "AI computer control" is not capability, it is **trust**: a model that turns a sentence straight into shell commands is unusable for real work. So FlowMesh inverts the usual demo: the model (or the local rules) may only **choose among registered workflows and parameters**. What actually runs is a fixed, allowlisted action set, executed once, after you read the plan.
-
-Three registered routines:
-
-| Routine | What it plans |
+| Page | What it is |
 | --- | --- |
-| `focus` | Open the board, launch Notepad, start a timer of the length you said |
-| `meeting` | Open the board, start the timer, notify your phone, save the follow-up |
-| `research` | Open docs or the board, start the sprint timer, notify your phone, set the lamp |
-| `capture` | Save exactly what you said as a structured note, verbatim |
+| **Home** | stats, recent runs, how to start |
+| **Flow** | say it → review the plan → receipts; live output while a coding agent works |
+| **Tools** | connect MCP servers (templates for files, git, GitHub, browser, Discord, Slack, Notion, Agent Switch), browse their tools, build and chain calls |
+| **Code** | your coding agents, their sign-in state, your project folders, and a task composer |
+| **Wispr** | history reader, optional Wispr account connection, Scratchpad notes, dictionary |
+| **History** | every run record, with its SHA-256 |
+| **Settings** | Home Assistant, a Jev key, the language model used for planning |
+| **About** | how it works and what it will not do |
 
-Anything else is refused, out loud, with a reason — including "delete my files".
+## Coding agents: Claude Code, Codex, Antigravity, OpenCode, Gemini CLI, Aider
+
+FlowMesh drives the agent CLI you already have. Details, limits and what is not verified:
+[docs/AGENTS.md](docs/AGENTS.md).
+
+1. **Sign in with your own account, in the vendor's own CLI.** The Code page shows each agent as
+   installed or not, its version and (for Claude Code and Codex) what the CLI says about being signed
+   in. **Sign in with your account** opens that CLI's own login (`claude auth login`, `codex login`,
+   …) in a real terminal. FlowMesh never sees or stores a Claude, ChatGPT or Google token, and does not
+   proxy anyone's subscription. This is deliberate: it keeps your account yours.
+2. **Register a project folder.** An agent can only work inside a folder you added (not a drive root,
+   your home folder or a system folder).
+3. **Choose how much it may do:**
+
+   | Mode | Risk | Meaning |
+   | --- | --- | --- |
+   | Plan / read-only | `read` | studies the project, changes nothing |
+   | Edit | `write` | edits files inside the project folder |
+   | Full access | `danger` | the agent's own checks are bypassed; needs the second confirmation |
+
+4. **Approve the plan.** It shows the agent, folder, the exact command and the full task text. The
+   agent runs; its output streams on the Flow page with a **Stop** button that kills the whole process tree.
+5. **Read the receipt.** A coding task is `returned` at best, never `verified`: FlowMesh did not check
+   the work. For a git repository it also reports exactly which files and commits git saw change.
+
+You can also say it: *"ask Codex to fix the failing test"* works with `claude`, `claude code`, `codex`,
+`chatgpt codex`, `antigravity`, `agy`, `opencode`, `gemini` and `aider`. The sentence supplies the agent and
+the task only; the folder and mode come from your saved defaults and appear in the plan.
+
+## Messaging and everything else: MCP, including Discord and Switch
+
+Any MCP server is a set of hands for FlowMesh (details: [docs/MCP.md](docs/MCP.md)). Every call is shown
+with its server, tool, exact arguments and a risk level FlowMesh derives itself (a server cannot lower its
+own); you approve once and each call runs once.
+
+Templates on the Tools page fill in the command from each server's own docs and take your token in a
+password field: **Discord** (your own bot), **Slack**, **Notion**, **Agent Switch** (a
+[Switch](https://github.com/sandbox-quantum/switch) you host, so its AI teammates in Slack, Teams, Discord
+and Telegram can be reached), plus files, git, GitHub, a real browser, web fetch, library docs and memory.
+These are templates, not endorsements: FlowMesh does not bundle those servers, and the four messaging
+ones have not been run against a real workspace by the author. An optional language model can turn one
+sentence into a validated tool plan; it only proposes, and every call is re-checked.
+
+## Wispr Flow, inside the app
+
+- **Live pickup.** On the desktop app new dictations are read from Wispr's local history (read-only,
+  a fixed allow-list of columns, never audio or screenshots) and planned automatically.
+- **Voice commands.** Only a *whole utterance* that matches a short fixed grammar ("go to tools",
+  "cancel", "read it back", "approve" if you turn that on) acts on the app; anything else is an ordinary
+  sentence that becomes a plan. Approval by voice is off by default and can never approve a `danger` plan.
+  Plans can be read back aloud. See [docs/VOICE.md](docs/VOICE.md).
+- **Account connector.** Optionally connect your Wispr account (OAuth with PKCE, loopback callback) and
+  load Scratchpad notes into the command box as untrusted text. Discovery, registration and the redirect
+  to Wispr's real login page were verified against Wispr's live servers; the step after a human signs in is
+  **not** yet verified. See [docs/WISPR-CONNECTOR.md](docs/WISPR-CONNECTOR.md).
+- **What FlowMesh is not.** It contains no speech engine. Its input is an ordinary text field, so any
+  dictation tool or a keyboard produces the same plan. Evidence that Wispr was used to build it (Insights,
+  video) is the author's to supply: [docs/SUBMISSION.md](docs/SUBMISSION.md).
 
 ## The 90-second judge path
 
-1. Open https://flowmesh-nohands.netlify.app/ — the badge reads **Browser edition · live**.
-2. Type or dictate into the command box (a real `textarea`, so Wispr Flow can insert text there):
+1. Open https://flowmesh-nohands.netlify.app/ (the badge reads **Browser edition · live**).
+2. On **Flow**, type or dictate into the command box:
 
    > I finished the pricing call with Rohan. Open the project board and start a 25 minute research sprint. Notify my phone and set the desk lamp to 40 percent.
 
-3. **Create plan** → the exact five actions, their surface, and the parameters appear.
-4. **Approve & run** → the timer starts, the approved URL opens in a new tab, and every row returns a receipt: `verified`, `sent`, or `not_configured` with the reason nothing was attempted.
-5. Every run writes a Markdown record (`Record generated in this page` in the browser, a real file on disk in the desktop app) so the plan, the receipts and the verbatim command survive the session.
+3. **Create plan** shows the exact actions and parameters. **Approve & run** starts the timer, opens the
+   approved URL and returns a receipt per row: `verified`, `sent`, or `not_configured` with the reason.
+4. Every run writes a Markdown record (generated in the page in the browser, a real file with a SHA-256 on
+   the desktop). The hosted page cannot touch your machine, Home Assistant or phone, and says so on each such
+   row instead of faking a success. On **Tools** it ships five in-page demo tools so you can try the MCP
+   flow without installing anything.
 
-The browser edition is not a simulation: the plan is real, the timer is real, the tab really opens, the record is really generated and downloaded. It cannot touch your filesystem, Notepad, Home Assistant or your phone — and it says so on every such row instead of faking a success.
+If one sentence holds two jobs, the plan says so: *"Also heard in this sentence: Research sprint. Not part
+of this plan; dictate that as its own command."* Nothing is silently dropped or added.
 
-Under the connector panel the hosted page also carries a **12-second capture of the desktop runtime reading a real Wispr Flow database** — `connected`, 9 dictations, 7 words, median 1152 ms, then the refusal when nothing is fresh. It is a recording, labelled as one, shown only where the live panel cannot exist; install the desktop build and you get the live version instead. The numbers are reproduced by [docs/EVAL.md](docs/EVAL.md).
+## Receipts mean something
 
-If one dictated sentence holds two jobs — *"capture the release link, and start a 20 minute research sprint"* — the plan says so out loud: **"Also heard in this sentence: Research sprint. Not part of this plan — dictate that as its own command."** Nothing is silently dropped, and nothing is silently added.
+| Status | Meaning |
+| --- | --- |
+| `verified` | confirmed by a read-back, or by a file FlowMesh wrote and hashed |
+| `returned` | a tool or agent answered; FlowMesh did not verify its effect |
+| `sent` | handed to the OS or an HTTP client |
+| `unknown` | no answer in time: it may or may not have happened |
+| `not_configured` / `unavailable` / `denied` / `failed` | nothing was attempted, or it failed, and the reason is stated |
 
 ## Three runtimes, one source
 
-`web/` is the only UI. `web/core.js` is a line-for-line port of `planner.py`, pinned by a shared golden file (`electron/test/fixtures/planner_golden.json`) that both sides are tested against — so a drift in either language fails CI.
+`web/` is the only UI. `web/core.js` is a line-for-line port of `planner.py`, pinned by a shared golden file,
+and the Electron runtime mirrors the Python bridge route for route; parity tests fail CI if either drifts.
 
-| Capability | Browser edition (hosted) | Desktop — Electron (Win/macOS/Linux) | Desktop — Python (Windows) |
+| Capability | Browser (hosted) | Desktop: Electron | Desktop: Python (Windows) |
 | --- | --- | --- | --- |
-| Plan, review, approve, one-use enforcement | yes, in-page | yes, server-owned in the main process | yes, server-owned |
-| Approved URL | new tab (opener severed) | default browser via the OS | default browser via the OS |
-| Timer | in-page countdown | in-process timer, receipt on schedule | server-side timer, receipt on schedule |
-| Run record | generated + downloaded | written to `~/FlowMesh/runs/` with SHA-256 | written to `~/FlowMesh/runs/` with SHA-256 |
-| Settings persistence | no | yes (`settings.json`, secrets encrypted with the OS keystore) | yes (`settings.json`, secrets in the OS credential store) |
-| Notepad / Calculator | marked `desktop_only` | launched from a per-OS allowlist | launched from a Windows allowlist |
-| Phone notification (Home Assistant Companion) | `not_configured` | `sent` only when configured; never called "verified" | `sent` only when configured; never called "verified" |
-| Lamp brightness | `not_configured` | `verified` **only** after a state read-back matches | `verified` **only** after a state read-back matches |
-| Jev Choice routing | local rules, labelled as such | Jev when a key is configured, labelled as such | Jev when a key is configured, labelled as such |
-
-Nothing is shared between the browser page and the desktop runtimes except the planner and the UI: the hosted page has no server, no storage, and no access to your machine. The two desktop runtimes share the same loopback contract (same paths, same status codes, same receipt vocabulary) and the same `settings.json`, so a judge can move between them without relearning anything.
+| Plan, review, approve, one-use enforcement | in-page | server-owned | server-owned |
+| Routines, timer, run record with SHA-256 | in-page, downloaded | yes | yes |
+| MCP servers (stdio and HTTP) | five in-page demo tools | yes | yes |
+| Coding agents | explained only | yes | yes |
+| Wispr history reader, live pickup, account connector | recording only | yes | yes |
+| Native confirmation before a local program is registered | n/a | yes (OS dialog) | acknowledgement in the page |
+| Credentials | none | encrypted with the OS keystore | OS credential store or `0600` file |
+| Phone notification, lamp | `not_configured` | via Home Assistant, lamp `verified` only after read-back | same |
 
 ## Install
 
-**Electron app (Windows, macOS, Linux)**
+**Electron app (Windows, macOS, Linux).** Download the artifact for your OS from
+[releases](https://github.com/HamzaShaikh-source/flowmesh/releases) (`FlowMesh-<version>-win-x64.exe` is
+portable; run it). No installer, admin rights or Node needed. Builds are unsigned, so SmartScreen
+(*More info → Run anyway*) or Gatekeeper (*right-click → Open*) will warn.
 
-1. Download the artifact for your OS from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases): `FlowMesh-1.5.0-win-x64.exe` (portable — double-click it), `FlowMesh-1.5.0-mac-arm64.dmg` (Apple silicon), or `FlowMesh-1.5.0-linux-x86_64.AppImage`.
-2. Run it. No installer, no admin, no Node install required.
-3. Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper will warn: *More info → Run anyway* on Windows, *right-click → Open* on macOS.
-4. The app opens its own window on `127.0.0.1` with a per-launch session token in the URL.
+**Python app (Windows).** Download `FlowMesh-Windows.zip`, unzip, run `FlowMesh.exe`.
 
-**Python app (Windows)**
-
-1. Download `FlowMesh-Windows.zip` from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases).
-2. Unzip anywhere (no installer, no admin).
-3. Run `FlowMesh.exe`. Windows may show a SmartScreen prompt for an unsigned build — *More info → Run anyway*.
-
-## Run from source (any OS)
+## Run from source
 
 ```bash
 # Electron desktop app (cross-platform)
@@ -120,92 +164,76 @@ npm start                     # real window
 npx electron . --server-only  # headless bridge, prints one URL with its token
 
 # Python desktop app
-python desktop.py            # native window if pywebview is installed
-python desktop.py --browser  # plain browser tab, zero GUI dependencies
-python desktop.py --headless --port 8765   # server only, prints one URL with its token
+python desktop.py             # native window if pywebview is installed
+python desktop.py --browser   # plain browser tab, zero GUI dependencies
+python bridge.py --port 8765  # server only, prints one URL with its token
 ```
 
-The Python runtime is stdlib only; `pywebview` and `keyring` are optional. The Electron runtime needs Node 20+ for development only — the shipped binary bundles everything. Full details in [docs/JUDGE-QUICKSTART.md](docs/JUDGE-QUICKSTART.md) and [docs/ELECTRON.md](docs/ELECTRON.md).
-
-## How Wispr Flow is used here
-
-Wispr Flow is a separate dictation product; FlowMesh contains no speech engine and claims none. The honest split:
-
-- **In the build** — requirements, follow-ups and bug reports for this rewrite were spoken through Wispr Flow into the coding tools, which is what the challenge asks for.
-- **In the product** — FlowMesh's input is an ordinary text field. Whatever puts text there — Wispr Flow, another dictation tool, or a keyboard — produces the same plan. The command box is deliberately a plain `textarea` so dictation lands where the cursor is.
-- **Evidence** — `docs/SUBMISSION.md` lists exactly which claims are engineering facts verified by tests, and which are personal evidence the author must supply (Insights card, video). Nothing in this repo pretends to be a screenshot or a time-saving number.
+The Python runtime is stdlib only (`pywebview` and `keyring` are optional). Electron needs Node 20+ for
+development only. More: [docs/JUDGE-QUICKSTART.md](docs/JUDGE-QUICKSTART.md), [docs/ELECTRON.md](docs/ELECTRON.md).
 
 ## No-hands control
 
-The desktop build installs two global hotkeys and a tray icon, so you can work without
-reaching for the mouse:
-
-- **Pull my last dictation** — the first accelerator that is free among
-  `Ctrl+Shift+Space`, `Ctrl+Alt+Space`, `Ctrl+Shift+D`, `Alt+Shift+V`.
-- **Approve the plan on screen** — first free among `Ctrl+Shift+Return`,
-  `Ctrl+Alt+Return`, `Ctrl+Shift+A`.
-
-A global shortcut can only belong to one program, so collisions are normal and the app
-takes the first free candidate rather than failing silently. Whatever registered is what
-the tray and the page display — the UI never advertises a key that is listening to
-nothing. Two distinct gestures, never one, so an accidental double-tap cannot run
-anything: the plan has to be on screen before approval does something.
-
-The tray keeps the app resident with no window open, with `Pull last dictation`,
-`Approve pending plan`, `Show FlowMesh`, and `Quit`.
+The desktop build registers two global hotkeys and a tray icon. **Pull my last dictation** takes the first
+free of `Ctrl+Shift+Space`, `Ctrl+Alt+Space`, `Ctrl+Shift+D`, `Alt+Shift+V`; **Approve the plan on screen**
+takes the first free of `Ctrl+Shift+Return`, `Ctrl+Alt+Return`, `Ctrl+Shift+A`. A shortcut can belong to only
+one program, so the app takes the first free candidate and shows only what actually registered. Pulling and
+approving are two separate gestures, so an accidental double-tap cannot run anything.
 
 ## Security model (short version)
 
-The browser UI, and every other local process, is treated as untrusted.
+The browser UI and every other local process are treated as untrusted. Full detail: [docs/SECURITY.md](docs/SECURITY.md).
 
-- Bound to `127.0.0.1`; `/api/*` requires the per-launch token; cross-origin `POST` rejected (`403`).
-- Origin/Host checks; JSON-only bodies; no raw action payloads — the client may only reference a plan ID (`400` otherwise).
-- Plans are server-owned, single-use, expiring; replay returns `409`.
-- Actions come from a fixed registry. Model output can select a routine and clamp its parameters; it can never emit a command, a path, a purchase, or a credential read.
-- Secrets live in the OS credential store (or a `0600` file) and are never returned by the API — only `connected: true/false`.
-- A `sent` receipt means "handed to the OS/HTTP client". It is never upgraded to `verified` without a read-back or a file hash.
-
-Full detail: [docs/SECURITY.md](docs/SECURITY.md).
+- Bound to `127.0.0.1`; `/api/*` needs the per-launch token; cross-origin `POST` is rejected; JSON-only,
+  size-capped bodies; the client sends only a plan id, never an action.
+- Plans are server-owned, single-use and expiring; replay returns `409`.
+- Built-in routines come from a fixed registry. MCP calls and coding tasks are the open-ended actions and
+  each has its own controls: risk derived by FlowMesh, a second confirmation for `danger`, no shell,
+  minimal child environment, sanitised and capped output, timeouts, cancel that kills the process tree.
+- Coding agents: sign-in stays with the vendor, registered folders only (re-resolved at run time), the task
+  goes to stdin or a private file rather than a shell, `FLOWMESH_*` secrets are stripped from the child,
+  and `FLOWMESH_AGENTS=off` disables the feature. `FLOWMESH_MCP_STDIO=off` does the same for local MCP programs.
+- Secrets live in the OS credential store (or a `0600` file) and the API only returns masked values.
+- Known limit, stated: a process running as the same user can read the loopback token and approve its own
+  plan. That is true of any local tool; the danger modes need a second gesture and both features can be switched off.
 
 ## Tests and what has actually been run
 
 ```bash
-python -m unittest discover -s tests -v   # 198 tests: planner, HTTP contract, adapters, artifacts, parity, Wispr account, MCP, model planner
-npm --prefix electron test                # 118 tests: Electron runtime, planner golden, Wispr account, MCP, model planner
-node --check web/core.js && node --check web/ui.js
+python -m unittest discover -s tests -v   # 256 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
+npm test                                  # 134 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
 ```
 
-Verified on this machine, 20 October 2026 — see [docs/VERIFICATION.md](docs/VERIFICATION.md) for the dated log with exact commands and results, including what is *not* verified (no Home Assistant hardware, no Jev key, no physical phone proof).
-
-**[docs/EVAL.md](docs/EVAL.md)** is the measured version of that claim — generated by `python eval/run_eval.py` from the shipped code, with the failures left in. It reports cross-runtime parity, golden-plan reproduction, refusal of destructive commands, real numbers from the local Wispr database, and the HTTP surface answering adversarial requests. Where a measurement does not exist, the page says so rather than estimating.
+[docs/VERIFICATION.md](docs/VERIFICATION.md) is the dated log with exact commands, including what is *not*
+verified. [docs/EVAL.md](docs/EVAL.md) is the measured version of the claims, generated from the shipped code
+with the failures left in. The coding-agent tests run against a mock CLI; a read-only Codex task and a
+read-only Claude Code task were also run for real on the author's machine (the Codex one `returned`, the
+Claude one failed honestly on an expired login), and nothing has yet verified a real edit by a real model.
 
 ## Repository layout
 
 ```
-planner.py            deterministic plans (Python, authoritative)
-web/core.js           exact port of planner.py (browser edition)
-web/index.html        product page + live console
-web/ui.js             plan → approve → receipts, both runtimes
-bridge.py             local runtime: token, plans, execution, run records
-flowmesh_config.py    settings + OS credential store
-wispr_account.py      Wispr OAuth sign-in (PKCE, loopback) + Scratchpad notes over MCP
-mcp_client.py         MCP stdio/HTTP client (hardened)   
-mcp_registry.py       MCP servers, risk levels, schema checks, tool plans
-llm_planner.py        model proposes a routine or tool calls; never runs them
-web/tools.js          tools workbench, builder, demo tools, command palette
-web/pages.js          hash router, Home dashboard, History
-web/voice.js          live Wispr pickup, voice commands, mic, read-aloud
-desktop.py            launcher: window / browser / headless
-tests/                planner, HTTP/security, adapters, artifacts, parity
-docs/                 decision record, quickstart, architecture, security, electron, verification, Wispr connector, demo script, submission kit
-dist/                 legacy v1.0 product page, kept only because the old ChatGPT-hosted site deploys from it
+planner.py            deterministic routine plans (authoritative)      web/core.js     exact port for the browser
+bridge.py             Python runtime: token, plans, execution, records electron/       Electron runtime and twins of every module
+agents.py             coding agents: catalog, folders, runs, receipts  web/code.js     Code page
+mcp_client.py         MCP stdio/HTTP client (hardened)                 web/tools.js    Tools page, builder, palette
+mcp_registry.py       servers, risk levels, schema checks, tool plans  web/pages.js    router, Home, History
+mcp_presets.py        server templates (Discord, Slack, Notion, ...)   web/voice.js    live Wispr pickup, voice, read-aloud
+llm_planner.py        optional model proposes; never runs               web/ui.js       plan, approve, receipts
+wispr_account.py      Wispr OAuth (PKCE) + Scratchpad over MCP         docs/           decision record, security, MCP, agents, voice, ...
+flowmesh_config.py    settings + OS credential store                   tests/          Python tests (mock agent and MCP servers)
 ```
 
 ## Status and limits
 
-- Windows is the only packaged desktop build. The runtime is cross-platform and tested on macOS/Linux in CI, but only Windows ships a binary.
-- Home Assistant and Jev are implemented adapters; both are `not_configured` until you add your own URL, token and entity. No hardware was available to the author, so those paths are covered by fixtures, not by a physical device.
-- FlowMesh does not control a phone beyond a Home Assistant Companion notification, and does not claim arbitrary appliance control.
+- Windows, macOS and Linux Electron builds come from CI; the author runs Windows. They are unsigned.
+- Home Assistant and Jev (a model router) are implemented but `not_configured` until you add your own
+  credentials; the author had no hardware, so those paths are covered by fixtures.
+- Coding agents: Antigravity, OpenCode, Gemini CLI and Aider command lines follow each CLI's documented
+  headless flags but have not been run for real; if a vendor changes a flag, `agents.py` is the one place
+  to fix (then `python scripts/export_agents_catalog.py`).
+- The Discord, Slack, Notion and Agent Switch templates are starting points, not verified integrations.
+- No telemetry, no accounts. The only network calls are to services you configure or connect.
 - Not a medical, financial or accessibility-certified tool.
 
-MIT licensed. No telemetry, no accounts, no network calls except the URLs and services you configure.
+MIT licensed.

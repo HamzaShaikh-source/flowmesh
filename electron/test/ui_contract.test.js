@@ -12,7 +12,7 @@ const { test } = require('node:test');
 const WEB = path.join(__dirname, '..', '..', 'web');
 const read = (name) => fs.readFileSync(path.join(WEB, name), 'utf8');
 const html = read('index.html');
-const SCRIPTS = ['core.js', 'ui.js', 'tools.js', 'pages.js', 'voice-grammar.js', 'voice.js', 'motion.js'];
+const SCRIPTS = ['core.js', 'ui.js', 'tools.js', 'code.js', 'pages.js', 'voice-grammar.js', 'voice.js', 'motion.js'];
 
 const idsInHtml = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
 
@@ -86,4 +86,12 @@ test('reduced motion switches off every infinite animation', () => {
   const block = css.slice(css.lastIndexOf('@media (prefers-reduced-motion: reduce)'));
   for (const selector of ['.caret', '.marquee-track', '.pulse', '.wave i']) assert.ok(block.includes(selector), selector);
   assert.match(block, /animation: none !important/);
+});
+
+test('the Code page is wired: hosted notice, desktop block, live panel and the ids code.js drives', () => {
+  for (const id of ['codeHosted', 'codeDesktop', 'agentList', 'spaceForm', 'taskForm', 'modeList', 'liveRun', 'liveOut', 'liveCancel']) {
+    assert.ok(idsInHtml.includes(id), id);
+  }
+  assert.match(read('pages.js'), /code: 'Code'/);
+  assert.match(read('voice-grammar.js'), /code: 'code'/);
 });

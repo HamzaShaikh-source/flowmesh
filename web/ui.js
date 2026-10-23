@@ -391,6 +391,12 @@
         args.appendChild(el('pre', null, JSON.stringify(action.arguments || {}, null, 2)));
         body.appendChild(args);
       }
+      if (action.kind === 'agent_run') {
+        var task = el('details', 'note-peek args');
+        task.appendChild(el('summary', null, 'Exact command and task'));
+        task.appendChild(el('pre', null, (action.command || '') + '\n\nIn: ' + (action.workspace_path || '') + '\n\n' + (action.prompt || '')));
+        body.appendChild(task);
+      }
       if (action.kind === 'write_note' && action.note) {
         var peek = el('details', 'note-peek');
         peek.appendChild(el('summary', null, 'Read exactly what will be written'));
@@ -498,6 +504,7 @@
     clearInterval(S.tick);
     $('planPanel').hidden = true;
     renderPending(plan);
+    document.dispatchEvent(new CustomEvent('flowmesh:approved', { detail: { plan: plan } }));
 
     if (S.mode === 'desktop') {
       api('/api/execute', plan.needs_confirm ? { plan_id: plan.id, confirm: true } : { plan_id: plan.id }).then(function (data) {
