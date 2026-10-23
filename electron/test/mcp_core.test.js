@@ -272,3 +272,30 @@ test('parity: risk levels and schema checks match the shared golden fixture', ()
     assert.equal(registry.validateArguments(item.schema, item.value).length === 0, item.valid, JSON.stringify(item));
   }
 });
+
+test('exit: killAllNow terminates the real child process', async () => {
+  const manager = registry.createManager({ store: freshStore() });
+  await manager.upsert(stdio());
+  let pid = 0;
+  const alive = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  try {
+    pid = Number((await manager.call('notes', 'pid', {})).text);
+    assert.ok(pid > 0);
+    assert.equal(alive(), true, 'the child should be running before the kill');
+    manager.killAllNow();
+    const deadline = Date.now() + 4000;
+    while (alive() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(alive(), false, 'the child survived killAllNow');
+  } finally {
+    // A failed assertion must never leave a server running (it would hang the runner).
+    if (pid > 0 && alive()) process.kill(pid);
+    await manager.closeAll();
+  }
+});

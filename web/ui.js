@@ -18,6 +18,7 @@
     artifactDir: '',
     dictation: null,
     wordsFrom: null,
+    context: '',
   };
 
   // The command box's own maxlength. Kept here so the trim and the counter agree.
@@ -44,7 +45,13 @@
     desktop_only: 'DESKTOP ONLY',
     failed: 'FAILED',
     denied: 'DENIED',
+    returned: 'RETURNED',
+    running: 'RUNNING',
   };
+
+  var SOURCE_LABEL = { jev: 'JEV CHOICE', llm: 'MODEL', builder: 'BUILDER', local: 'LOCAL RULES', jev_unavailable: 'LOCAL RULES' };
+  var RISK_LABEL = { read: 'READ', write: 'WRITE', danger: 'DANGER' };
+  var REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   var ERRORS = {
     plan_expired: 'That plan expired before you approved it. Nothing ran — create a new plan.',
@@ -64,7 +71,9 @@
   };
 
   function humanError(code) {
-    return ERRORS[code] || 'The runtime answered: ' + code;
+    // The runtime answers connector, tool and model failures in plain sentences.
+    if (ERRORS[code]) return ERRORS[code];
+    return /\s/.test(code) ? code : 'The runtime answered: ' + code;
   }
 
   function el(tag, className, text) {
@@ -131,6 +140,7 @@
     $('consoleSub').textContent = 'You are in the browser edition. The plan, the approved links, the timer and the run record are real here. App launches, phone notifications and the lamp are performed by the desktop app — they are marked desktop only and never faked.';
     $('capNote').textContent = 'The browser cannot touch your filesystem, your apps, or your home. FlowMesh does not claim otherwise. The device rows are executed only by the local runtime, after a one-use approval, and are read back before they are called verified.';
     paintWisprDesktopOnly();
+    notifyMode(null);
   }
 
   /* The Wispr integration reads a local database, so this page cannot show it live.
@@ -174,8 +184,16 @@
     paintDesktopCell('light_desktop', 'Desk lamp brightness (Home Assistant)', S.caps.light, 'not_configured');
     paintDesktopCell('jev', 'Jev Choice routing', S.caps.jev, 'local_rules');
 
+    paintDesktopCell('tools_desktop', 'MCP tools', S.caps.tools, 'ready');
+    paintDesktopCell('model', 'Language-model planner', S.caps.model, 'ready');
+
     $('settingsSection').hidden = false;
     loadSettings();
+    notifyMode(status);
+  }
+
+  function notifyMode(status) {
+    document.dispatchEvent(new CustomEvent('flowmesh:mode', { detail: { mode: S.mode, status: status } }));
   }
 
   function paintDesktopCell(cellId, label, value, readyValue) {
@@ -198,6 +216,7 @@
   /* ---------------- plan ---------------- */
 
   function bind() {
+    $('commandInput').setAttribute('data-placeholder', $('commandInput').placeholder);
     $('planButton').addEventListener('click', createPlan);
     $('commandInput').addEventListener('input', function () {
       $('charCount').textContent = this.value.length + ' / ' + BOX_LIMIT;
@@ -242,6 +261,11 @@
       });
     });
     $('approveButton').addEventListener('click', approvePlan);
+    $('dangerConfirm').addEventListener('change', function () {
+      if (S.plan && S.plan.needs_confirm) $('approveButton').disabled = !this.checked;
+    });
+    $('nextStep').addEventListener('click', useOutputAsContext);
+    $('contextClear').addEventListener('click', clearContext);
     $('cancelButton').addEventListener('click', cancelPlan);
     $('pullDictation').addEventListener('click', pullDictation);
     $('accountConnect').addEventListener('click', connectAccount);
@@ -274,10 +298,18 @@
     if (text.length > 1000) { toast(ERRORS.command_too_long); return; }
     if (S.mode === 'desktop') {
       var body = S.dictation ? { command: text, dictation: S.dictation } : { command: text };
+      if (S.context) body.context = S.context;
+      var planButton = $('planButton');
+      planButton.disabled = true;
+      planButton.setAttribute('aria-busy', 'true');
       api('/api/plan', body).then(function (plan) {
         plan.command = text;
+        clearContext();
         showPlan(plan);
-      }).catch(function (err) { handleError(err); });
+      }).catch(function (err) { handleError(err); }).then(function () {
+        planButton.disabled = false;
+        planButton.removeAttribute('aria-busy');
+      });
       return;
     }
     // Browser edition: the same planner, running in this page.
@@ -330,19 +362,41 @@
       : '';
     var badge = $('planSource');
     badge.hidden = false;
-    badge.textContent = plan.source === 'jev' ? 'JEV CHOICE' : 'LOCAL RULES';
-    if (plan.confidence !== null && plan.confidence !== undefined) {
-      badge.textContent = 'JEV CHOICE · ' + Math.round(plan.confidence * 100) + '%';
+    badge.textContent = SOURCE_LABEL[plan.source] || 'LOCAL RULES';
+    if (plan.source === 'jev' && plan.confidence !== null && plan.confidence !== undefined) {
+      badge.textContent = 'JEV CHOICE \u00b7 ' + Math.round(plan.confidence * 100) + '%';
     }
+    var riskBadge = $('planRisk');
+    riskBadge.hidden = !plan.risk;
+    if (plan.risk) {
+      riskBadge.textContent = RISK_LABEL[plan.risk] || String(plan.risk).toUpperCase();
+      riskBadge.setAttribute('data-r', plan.risk);
+    }
+    $('planNotice').hidden = !plan.notice;
+    $('planNotice').textContent = plan.notice || '';
+    $('dangerGate').hidden = !plan.needs_confirm;
+    $('dangerConfirm').checked = false;
+    $('autoNote').hidden = !plan.auto_run;
 
     var list = $('planActions');
     list.replaceChildren();
     plan.actions.forEach(function (action, index) {
       var row = el('li');
-      row.appendChild(el('span', 'idx', pad(index + 1)));
+      row.style.animationDelay = (index * 70) + 'ms';
+      if (action.risk) row.setAttribute('data-r', action.risk);
+      var wire = el('span', 'idx');
+      wire.appendChild(el('span', 'node'));
+      wire.appendChild(el('span', 'num', pad(index + 1)));
+      row.appendChild(wire);
       var body = el('div');
       body.appendChild(el('span', 'label', action.label));
       body.appendChild(el('span', 'detail', action.detail));
+      if (action.kind === 'mcp_call') {
+        var args = el('details', 'note-peek args');
+        args.appendChild(el('summary', null, 'Exact arguments'));
+        args.appendChild(el('pre', null, JSON.stringify(action.arguments || {}, null, 2)));
+        body.appendChild(args);
+      }
       if (action.kind === 'write_note' && action.note) {
         var peek = el('details', 'note-peek');
         peek.appendChild(el('summary', null, 'Read exactly what will be written'));
@@ -350,18 +404,39 @@
         body.appendChild(peek);
       }
       row.appendChild(body);
-      row.appendChild(el('span', 'tag', String(action.surface || 'pc').toUpperCase()));
+      var chips = el('span', 'chips-col');
+      if (action.risk) {
+        var chip = el('span', 'risk', RISK_LABEL[action.risk] || String(action.risk).toUpperCase());
+        chip.setAttribute('data-r', action.risk);
+        chips.appendChild(chip);
+      }
+      chips.appendChild(el('span', 'tag', String(action.server_label || action.surface || 'pc').toUpperCase()));
+      row.appendChild(chips);
       list.appendChild(row);
     });
 
     $('planPanel').classList.remove('consumed');
     $('cancelButton').hidden = false;
     $('approveButton').textContent = 'Approve & run ↗';
-    $('approveButton').disabled = false;
+    $('approveButton').disabled = Boolean(plan.needs_confirm) || Boolean(plan.auto_run);
     clearInterval(S.tick);
     S.tick = setInterval(tickExpiry, 500);
     tickExpiry();
-    $('approveButton').focus();
+    if (plan.auto_run) {
+      // Every call is read-only and on a server the person marked trusted. The plan is
+      // still shown first; it just does not wait for a click.
+      setTimeout(function () { if (S.plan === plan) approvePlan(); }, REDUCED ? 100 : 900);
+    } else if (!plan.needs_confirm) {
+      $('approveButton').focus();
+    }
+    scrollIntoViewSoft($('reviewPanel'));
+  }
+
+  function scrollIntoViewSoft(node) {
+    var box = node.getBoundingClientRect();
+    if (box.top > window.innerHeight * 0.85 || box.bottom < 0) {
+      node.scrollIntoView({ block: 'center', behavior: REDUCED ? 'auto' : 'smooth' });
+    }
   }
 
   function tickExpiry() {
@@ -413,6 +488,12 @@
 
   function approvePlan() {
     if (!S.plan) return;
+    if (S.plan.needs_confirm && !$('dangerConfirm').checked) {
+      // Also guards the hotkey and hash paths, which never touch the checkbox.
+      toast('Tick the confirmation first: this plan can change or destroy things.');
+      $('dangerGate').scrollIntoView({ block: 'center', behavior: REDUCED ? 'auto' : 'smooth' });
+      return;
+    }
     if (Date.now() > S.expiresAt) { tickExpiry(); return; }
     var plan = S.plan;
     $('approveButton').disabled = true;
@@ -420,9 +501,10 @@
     S.used = true;
     clearInterval(S.tick);
     $('planPanel').hidden = true;
+    renderPending(plan);
 
     if (S.mode === 'desktop') {
-      api('/api/execute', { plan_id: plan.id }).then(function (data) {
+      api('/api/execute', plan.needs_confirm ? { plan_id: plan.id, confirm: true } : { plan_id: plan.id }).then(function (data) {
         var results = data.results || [];
         var record = results.filter(function (r) { return r && r.path && r.sha256; }).pop() || null;
         // The runtime reports each step as { action: {...}, status, detail }.
@@ -437,17 +519,46 @@
             detail: (r && r.detail) || '',
             path: r && r.path,
             sha256: r && r.sha256,
-            bytes: r && r.bytes
+            bytes: r && r.bytes,
+            output: (r && r.output) || '',
+            risk: action.risk || '',
+            server: action.target && action.kind === 'mcp_call' ? action.target : ''
           };
         });
         finish(plan, receipts, data.artifact || record);
       }).catch(function (err) {
         $('approveButton').disabled = false;
+        $('receiptList').replaceChildren();
+        $('receiptEmpty').hidden = false;
+        $('receiptCount').textContent = 'No run';
         handleError(err);
       });
       return;
     }
     finish(plan, runInBrowser(plan), null);
+  }
+
+  /* While the runtime works, show the rows that are about to be answered. They carry no
+     status: a status is only drawn once the runtime has actually reported one. */
+  function renderPending(plan) {
+    var list = $('receiptList');
+    list.replaceChildren();
+    $('receiptEmpty').hidden = true;
+    $('receiptCount').textContent = plan.actions.length + ' steps \u00b7 waiting for the runtime';
+    plan.actions.forEach(function (action, index) {
+      var row = el('li');
+      row.setAttribute('data-running', '1');
+      row.appendChild(el('span', 'idx mono', pad(index + 1)));
+      var body = el('div');
+      body.appendChild(el('span', 'receipt-label', action.label));
+      body.appendChild(el('span', 'receipt-detail', 'Running\u2026'));
+      row.appendChild(body);
+      var status = el('span', 'status', STATUS_LABEL.running);
+      status.setAttribute('data-s', 'running');
+      row.appendChild(status);
+      list.appendChild(row);
+    });
+    scrollIntoViewSoft($('receipts'));
   }
 
   function runInBrowser(plan) {
@@ -477,6 +588,8 @@
       } else if (action.kind === 'write_note') {
         receipt.status = 'verified';
         receipt.detail = 'Record generated in this page · ' + recordName;
+      } else if (action.kind === 'mcp_call' && window.FlowMeshTools) {
+        receipt = window.FlowMeshTools.runDemo(action, receipt);
       } else if (action.kind === 'launch_app') {
         receipt.status = 'desktop_only';
         receipt.detail = 'The browser cannot launch applications. Run this plan in the desktop app.';
@@ -491,7 +604,7 @@
     });
 
     var written = buildRecord(plan, receipts, recordName);
-    S.record = { name: recordName, text: written.text };
+    S.record = { name: recordName, text: written.text, bytes: written.bytes };
     try { download(recordName, written.text); } catch (err) { /* the panel still has the copy */ }
     return receipts;
   }
@@ -523,6 +636,10 @@
     receipts.forEach(function (receipt, index) {
       lines.push('| ' + (index + 1) + ' | ' + escapeCell(receipt.label) + ' | ' + receipt.surface + ' | ' +
         receipt.status + ' | ' + escapeCell(receipt.detail) + ' |');
+    });
+    receipts.forEach(function (receipt, index) {
+      if (!receipt.output) return;
+      lines.push('', '### Output of step ' + (index + 1) + ' (untrusted text from the tool)', '', '```', String(receipt.output).replace(/```/g, "'''"), '```');
     });
     lines.push('', '## Verbatim', '', '```', String(plan.command).replace(/```/g, "'''"), '```', '');
     var text = lines.join('\n');
@@ -571,7 +688,33 @@
     $('cancelButton').hidden = true;
     $('planExpiry').textContent = 'Run finished ' + new Date().toLocaleTimeString() + ' · this plan can never run again';
     var verified = receipts.filter(function (r) { return r.status === 'verified'; }).length;
-    toast('Run complete · ' + verified + ' of ' + receipts.length + ' steps verified. Nothing reached beyond what the receipts say.');
+    var returned = receipts.filter(function (r) { return r.status === 'returned'; }).length;
+    $('nextStepBar').hidden = !(S.mode === 'desktop' && receipts.some(function (r) { return r.output; }));
+    toast('Run complete \u00b7 ' + verified + ' verified' + (returned ? ', ' + returned + ' returned by tools' : '') +
+      ' of ' + receipts.length + ' steps. Nothing reached beyond what the receipts say.');
+  }
+
+  /* Follow-up planning. Tool output is shown to the planner only as tagged data, on the
+     person's explicit click, and whatever it proposes is validated and approved as usual. */
+  function useOutputAsContext() {
+    var parts = S.receipts.filter(function (r) { return r.output; }).map(function (r) {
+      return r.label + ' (' + r.status + '):\n' + String(r.output).slice(0, 1500);
+    });
+    if (!parts.length) return;
+    S.context = parts.join('\n\n').slice(0, 4000);
+    $('contextChip').hidden = false;
+    $('contextText').textContent = 'Using ' + parts.length + ' tool output' + (parts.length > 1 ? 's' : '') + ' as untrusted context for the next plan.';
+    $('commandInput').value = '';
+    $('charCount').textContent = '0 / ' + BOX_LIMIT;
+    $('commandInput').placeholder = 'What should happen next, given that output?';
+    $('commandInput').focus();
+    scrollIntoViewSoft($('commandInput'));
+  }
+
+  function clearContext() {
+    S.context = '';
+    $('contextChip').hidden = true;
+    $('commandInput').placeholder = $('commandInput').getAttribute('data-placeholder') || $('commandInput').placeholder;
   }
 
   function renderReceipts(receipts) {
@@ -584,14 +727,28 @@
     }
     $('receiptEmpty').hidden = true;
     $('receiptLegend').hidden = false;
-    $('receiptCount').textContent = receipts.length + ' steps · ' + new Date().toLocaleTimeString();
+    $('receiptCount').textContent = receipts.length + ' steps \u00b7 ' + new Date().toLocaleTimeString();
     receipts.forEach(function (receipt, index) {
       var row = el('li');
       row.setAttribute('data-receipt', String(index));
+      row.setAttribute('data-stamp', '1');
+      row.style.animationDelay = (REDUCED ? 0 : index * 110) + 'ms';
       row.appendChild(el('span', 'idx mono', pad(index + 1)));
       var body = el('div');
       body.appendChild(el('span', 'receipt-label', receipt.label));
       body.appendChild(el('span', 'receipt-detail', receipt.detail || ''));
+      if (receipt.output) {
+        var out = el('details', 'note-peek output');
+        out.appendChild(el('summary', null, 'Output \u00b7 ' + receipt.output.length + ' characters (untrusted)'));
+        out.appendChild(el('pre', null, receipt.output));
+        var copyOut = el('button', 'copy-out mono', 'copy');
+        copyOut.type = 'button';
+        copyOut.addEventListener('click', function () {
+          copy(receipt.output).then(function () { toast('Output copied.'); }).catch(function () { toast('Copy failed.'); });
+        });
+        out.appendChild(copyOut);
+        body.appendChild(out);
+      }
       row.appendChild(body);
       var status = el('span', 'status', STATUS_LABEL[receipt.status] || String(receipt.status).toUpperCase());
       status.setAttribute('data-s', receipt.status);
@@ -948,18 +1105,28 @@
     return ' Create a plan first, then approve it.';
   }
 
+  var SETTINGS_FIELDS = ['board_url', 'docs_url', 'ha_url', 'light_entity', 'phone_service', 'llm_provider', 'llm_model', 'llm_base_url'];
+  var SETTINGS_SECRETS = ['jev_key', 'ha_token', 'llm_key'];
+
+  function paintSecretStates(data) {
+    var state = function (flag) { return flag ? 'connected' : 'not connected'; };
+    $('jevState').textContent = state(data.jev_connected);
+    $('haState').textContent = state(data.ha_token_connected);
+    $('llmState').textContent = state(data.llm_connected);
+  }
+
   function loadSettings() {
     fetch('/api/settings', { headers: { 'X-FlowMesh-Token': S.token }, cache: 'no-store' })
       .then(function (res) { return res.json(); })
       .then(function (data) {
+        // Both runtimes answer a flat object: the fields, plus *_connected flags.
         var form = $('settingsForm');
-        ['board_url', 'docs_url', 'ha_url', 'light_entity', 'phone_service'].forEach(function (name) {
-          if (form.elements[name] && data.settings[name] != null) form.elements[name].value = data.settings[name];
+        SETTINGS_FIELDS.forEach(function (name) {
+          if (form.elements[name] && data[name] != null) form.elements[name].value = data[name];
         });
-        $('jevState').textContent = data.secrets && data.secrets.jev ? 'connected' : 'not connected';
-        $('haState').textContent = data.secrets && data.secrets.ha ? 'connected' : 'not connected';
+        paintSecretStates(data);
         $('secretBackend').textContent = 'Secrets: ' + (data.secret_backend || 'unknown') +
-          '. Keys are write-only from this page — the API never returns them.';
+          '. Keys are write-only from this page \u2014 the API never returns them.';
       })
       .catch(function () { /* the console still works without settings */ });
   }
@@ -968,23 +1135,19 @@
     event.preventDefault();
     var form = event.target;
     var payload = {};
-    ['board_url', 'docs_url', 'ha_url', 'light_entity', 'phone_service'].forEach(function (name) {
+    SETTINGS_FIELDS.forEach(function (name) {
       payload[name] = form.elements[name].value.trim();
     });
-    ['jev_key', 'ha_token'].forEach(function (name) {
+    SETTINGS_SECRETS.forEach(function (name) {
       var value = form.elements[name].value.trim();
       if (value) payload[name] = value;
     });
-    $('settingsMessage').textContent = 'Saving…';
+    $('settingsMessage').textContent = 'Saving\u2026';
     api('/api/settings', payload).then(function (data) {
       $('settingsMessage').textContent = 'Saved locally.';
-      form.elements.jev_key.value = '';
-      form.elements.ha_token.value = '';
-      if (data.secrets) {
-        $('jevState').textContent = data.secrets.jev ? 'connected' : 'not connected';
-        $('haState').textContent = data.secrets.ha ? 'connected' : 'not connected';
-      }
-      toast('Connections saved. The capability table now reflects what is configured.');
+      SETTINGS_SECRETS.forEach(function (name) { form.elements[name].value = ''; });
+      paintSecretStates(data);
+      toast('Saved. The capability table now reflects what is configured.');
       fetch('/api/status', { headers: { 'X-FlowMesh-Token': S.token }, cache: 'no-store' })
         .then(function (res) { return res.json(); })
         .then(function (status) { setDesktopMode(status); });
@@ -1022,6 +1185,33 @@
       finally { area.remove(); }
     });
   }
+
+  /* What tools.js and motion.js are allowed to use. Nothing here bypasses the plan gate:
+     showPlan only renders a plan the runtime (or the in-page demo) already produced. */
+  window.FlowMeshUI = {
+    api: api,
+    get: get,
+    toast: toast,
+    el: el,
+    pad: pad,
+    humanError: humanError,
+    showPlan: showPlan,
+    createPlan: createPlan,
+    approvePlan: approvePlan,
+    clearPlan: cancelPlan,
+    hasPlan: function () { return Boolean(S.plan); },
+    mode: function () { return S.mode; },
+    token: function () { return S.token; },
+    setCommand: function (text) {
+      $('commandInput').value = text;
+      $('charCount').textContent = text.length + ' / ' + BOX_LIMIT;
+      $('commandInput').focus();
+    },
+    focusCommand: function () { $('commandInput').focus(); scrollIntoViewSoft($('commandInput')); },
+    pullDictation: pullDictation,
+    connectAccount: connectAccount,
+    reduced: function () { return REDUCED; },
+  };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

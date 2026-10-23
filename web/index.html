@@ -11,8 +11,11 @@
 <link rel="preload" href="fonts/space-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/instrument-serif-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="tools.css">
 <script src="core.js" defer></script>
 <script src="ui.js" defer></script>
+<script src="tools.js" defer></script>
+<script src="motion.js" defer></script>
 </head>
 <body>
 <a class="skip" href="#console">Skip to the console</a>
@@ -27,7 +30,11 @@
     <span class="pill" id="runtimeBadge" data-state="detecting" role="status" aria-live="polite">
       <span class="dot" aria-hidden="true"></span><span id="runtimeText">Detecting runtime</span>
     </span>
+    <button class="palette-trigger" id="paletteTrigger" type="button" aria-label="Open the command palette">
+      <span>Search actions</span><kbd>Ctrl</kbd><kbd>K</kbd>
+    </button>
     <nav class="topbar-links" aria-label="Project links">
+      <a href="#tools">Tools</a>
       <a href="#capabilities">What runs where</a>
       <a href="https://github.com/HamzaShaikh-source/flowmesh" rel="noopener">Source ↗</a>
       <a href="https://github.com/HamzaShaikh-source/flowmesh/releases/latest" rel="noopener">Desktop app ↗</a>
@@ -40,31 +47,38 @@
     <div class="hero-copy">
       <p class="eyebrow"><span class="rule" aria-hidden="true"></span> BUILDERS TRACK / WISPR FLOW</p>
       <h1 id="hero-title">Say the work.<br><em>See it happen.</em></h1>
-      <p class="lede">One dictated intention becomes a short plan you can read, approve once, and trace. FlowMesh does the small jobs around the real work — opens the board, starts the timer, files the follow-up — and tells you exactly what happened, including what did not.</p>
+      <p class="lede">One spoken sentence becomes a short, wired plan: routines it already knows, plus any tool you connect over MCP &mdash; messaging, code, files, browsers. You read the exact calls, approve once, and every step comes back with an honest receipt, including what did not happen.</p>
       <div class="hero-actions">
-        <a class="button primary" href="#console">Open the live console <span aria-hidden="true">↓</span></a>
-        <a class="button ghost" href="#capabilities">What actually runs <span aria-hidden="true">↗</span></a>
+        <a class="button primary" href="#console">Open the live console <span aria-hidden="true">&darr;</span></a>
+        <a class="button ghost" href="#tools">Connect tools <span aria-hidden="true">&rarr;</span></a>
       </div>
       <p class="hero-note">No account. Nothing to install to try it. Wispr Flow is a separate dictation app: hold its key, talk, and the text lands in the box below.</p>
     </div>
 
-    <aside class="specimen" aria-label="Example plan, illustrative">
+    <aside class="specimen" id="specimen" aria-label="Animated example of a plan, illustrative">
       <div class="specimen-head">
-        <span class="mono">EXAMPLE PLAN</span>
-        <span class="stamp">ONE USE · 05:00</span>
+        <span class="mono">EXAMPLE &middot; ILLUSTRATIVE</span>
+        <span class="stamp" id="specimenStamp">ONE USE &middot; 05:00</span>
       </div>
-      <p class="specimen-route">Meeting reset</p>
-      <ol class="specimen-actions">
-        <li><span class="mono">01</span><span>Open project board</span><span class="tag">PC</span></li>
-        <li><span class="mono">02</span><span>Notify my phone</span><span class="tag">PHONE</span></li>
-        <li><span class="mono">03</span><span>Set desk lamp to 70%</span><span class="tag">SPACE</span></li>
-        <li><span class="mono">04</span><span>Save run record</span><span class="tag">PC</span></li>
+      <p class="specimen-say" aria-hidden="true"><span class="mono quiet">YOU SAY</span><span id="specimenSay" class="say-line"></span><i class="caret"></i></p>
+      <p class="specimen-say-static sr-only">Message Rohan the revised quote, then open a pull request for the pricing fix.</p>
+      <ol class="specimen-actions" id="specimenActions">
+        <li data-step="1"><span class="node" aria-hidden="true"></span><span class="mono">01</span><span class="what">chat / post_message <em>Rohan &middot; revised quote</em></span><span class="risk" data-r="write">WRITE</span><span class="receipt" data-s="returned">RETURNED</span></li>
+        <li data-step="2"><span class="node" aria-hidden="true"></span><span class="mono">02</span><span class="what">github / create_pull_request <em>fix pricing</em></span><span class="risk" data-r="write">WRITE</span><span class="receipt" data-s="returned">RETURNED</span></li>
+        <li data-step="3"><span class="node" aria-hidden="true"></span><span class="mono">03</span><span class="what">Save run record <em>sha256</em></span><span class="risk" data-r="read">PC</span><span class="receipt" data-s="verified">VERIFIED</span></li>
       </ol>
       <div class="specimen-foot">
-        <span class="mono">4 ACTIONS · 1 APPROVAL</span>
-        <span class="mono quiet">illustrative</span>
+        <span class="mono">3 ACTIONS &middot; 1 APPROVAL</span>
+        <span class="mono quiet" id="specimenPhase">reading the plan</span>
       </div>
     </aside>
+  </section>
+
+  <section class="marquee" aria-label="Works with">
+    <p class="mono quiet">PLUGS INTO ANY MCP SERVER</p>
+    <ul class="marquee-track" id="marquee">
+      <li>Files</li><li>Git</li><li>GitHub</li><li>Browser</li><li>Web fetch</li><li>Library docs</li><li>Memory</li><li>Slack</li><li>Discord</li><li>Telegram</li><li>Gmail</li><li>Jira</li><li>Your own server</li>
+    <li aria-hidden="true">Files</li><li aria-hidden="true">Git</li><li aria-hidden="true">GitHub</li><li aria-hidden="true">Browser</li><li aria-hidden="true">Web fetch</li><li aria-hidden="true">Library docs</li><li aria-hidden="true">Memory</li><li aria-hidden="true">Slack</li><li aria-hidden="true">Discord</li><li aria-hidden="true">Telegram</li><li aria-hidden="true">Gmail</li><li aria-hidden="true">Jira</li><li aria-hidden="true">Your own server</li></ul>
   </section>
 
   <section class="console" id="console" aria-labelledby="console-title">
@@ -81,6 +95,10 @@
           <span class="mono quiet" id="charCount">0 / 1000</span>
           <span class="mono provenance" id="provenanceLine" hidden></span>
         </div>
+        <p class="context-chip" id="contextChip" hidden>
+          <span class="mono">FOLLOW-UP</span><span id="contextText">Using the output of your last run as context.</span>
+          <button type="button" id="contextClear" aria-label="Stop using the last run as context">&times;</button>
+        </p>
         <label class="sr-only" for="commandInput">Your command</label>
         <textarea id="commandInput" rows="4" maxlength="1000" spellcheck="true"
           placeholder="I just finished the pricing call. Follow-up: send Rohan the revised quote tomorrow. Open my board, notify my phone, and put the lamp at 70 percent."></textarea>
@@ -146,7 +164,7 @@
       <div class="panel review" id="reviewPanel" aria-live="polite">
         <div class="panel-head">
           <span class="step mono">02 / REVIEW</span>
-          <span class="source-badge" id="planSource" hidden></span>
+          <span class="badges"><span class="risk-badge" id="planRisk" hidden></span><span class="source-badge" id="planSource" hidden></span></span>
         </div>
 
         <div class="empty" id="planEmpty">
@@ -158,7 +176,13 @@
           <h3 class="plan-title" id="planTitle"></h3>
           <p class="plan-desc" id="planDesc"></p>
           <p class="plan-also" id="planAlso" hidden></p>
+          <p class="plan-notice" id="planNotice" hidden></p>
           <ol class="actions" id="planActions"></ol>
+          <label class="danger-gate" id="dangerGate" hidden>
+            <input type="checkbox" id="dangerConfirm">
+            <span><strong>This plan can change or destroy things.</strong> I have read every call above and I understand it may not be undoable.</span>
+          </label>
+          <p class="auto-note mono" id="autoNote" hidden>Read-only calls on a server you trusted &middot; running now</p>
           <div class="review-foot">
             <p class="mono quiet" id="planExpiry">Expires in 5:00 · single use</p>
             <div class="review-buttons">
@@ -176,10 +200,18 @@
         <span class="mono quiet" id="receiptCount">No run yet</span>
       </div>
       <p class="empty small" id="receiptEmpty">After approval each action reports its own status. <span class="mono">sent</span> is not <span class="mono">verified</span>, and the difference is printed here.</p>
-      <p class="receipt-legend" id="receiptLegend" hidden><span class="mono" data-s="sent">sent</span> handed to the OS or browser ·
-        <span class="mono" data-s="verified">verified</span> confirmed by read-back or written file ·
-        <span class="mono" data-s="not_configured">not configured</span> no credentials, nothing was attempted</p>
+      <ul class="receipt-legend" id="receiptLegend" hidden aria-label="What each status means">
+        <li><span class="mono" data-s="verified">verified</span> confirmed by read-back or a file FlowMesh wrote and hashed</li>
+        <li><span class="mono" data-s="returned">returned</span> a tool answered; FlowMesh did not verify its effect</li>
+        <li><span class="mono" data-s="sent">sent</span> handed to the OS or browser</li>
+        <li><span class="mono" data-s="unknown">unknown</span> no answer in time: it may or may not have happened</li>
+        <li><span class="mono" data-s="not_configured">not configured</span> no credentials, nothing was attempted</li>
+      </ul>
       <ol class="receipt-list" id="receiptList"></ol>
+      <div class="next-step" id="nextStepBar" hidden>
+        <p class="quiet">Tool output is untrusted text. Using it as context only shows it to the planner as data; you still approve whatever comes next.</p>
+        <button class="button ghost" id="nextStep" type="button">Plan the next step from this output <span aria-hidden="true">&rarr;</span></button>
+      </div>
 
       <div class="artifact" id="artifactPanel" hidden>
         <div class="artifact-copy">
@@ -190,6 +222,68 @@
         <div class="artifact-actions">
           <button class="button ghost" id="copyButton" type="button">Copy Markdown</button>
           <button class="button primary" id="downloadButton" type="button">Download record</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tools" id="tools" aria-labelledby="tools-title" data-reveal>
+    <div class="section-head">
+      <p class="eyebrow"><span class="rule" aria-hidden="true"></span> HANDS / MODEL CONTEXT PROTOCOL</p>
+      <h2 id="tools-title">Anything with an MCP server. <em>Nothing without your yes.</em></h2>
+      <p class="section-sub" id="toolsLede">Connect messaging, code, files and browsers. FlowMesh shows the exact call &mdash; server, tool, arguments, risk &mdash; before it runs, and each call runs once.</p>
+    </div>
+
+    <div class="trust-row" role="list">
+      <div role="listitem"><span class="risk" data-r="read">READ</span><p>Read-only tools. They can run without a click, but only on servers you mark trusted.</p></div>
+      <div role="listitem"><span class="risk" data-r="write">WRITE</span><p>Sends, saves, creates. Always shown and approved first.</p></div>
+      <div role="listitem"><span class="risk" data-r="danger">DANGER</span><p>Deletes, executes, resets. Needs a second, explicit confirmation.</p></div>
+    </div>
+
+    <div class="tools-grid">
+      <div class="panel" id="serversPanel">
+        <div class="panel-head">
+          <span class="step mono">SERVERS</span>
+          <button class="button ghost small" id="addServer" type="button">Add server <span aria-hidden="true">+</span></button>
+        </div>
+        <ul class="server-list" id="serverList" aria-live="polite"></ul>
+        <p class="empty small" id="serverEmpty">No servers connected yet. Pick a template or add your own.</p>
+        <p class="mono quiet" id="modelStatus"></p>
+      </div>
+
+      <div class="panel" id="toolsPanel">
+        <div class="panel-head">
+          <span class="step mono">TOOLS</span>
+          <span class="mono quiet" id="toolCount">0 tools</span>
+        </div>
+        <label class="sr-only" for="toolSearch">Filter tools</label>
+        <input id="toolSearch" class="search" type="search" placeholder="Filter tools by name, server or risk" autocomplete="off">
+        <ul class="tool-list" id="toolList"></ul>
+        <p class="empty small" id="toolEmpty">Connect a server to see its tools here.</p>
+      </div>
+
+      <div class="panel builder" id="builderPanel">
+        <div class="panel-head">
+          <span class="step mono">BUILDER</span>
+          <span class="risk" id="builderRisk" data-r="read" hidden></span>
+        </div>
+        <div id="builderEmpty" class="empty small">Pick a tool to fill in its arguments, or chain several into one plan. The model planner uses the same tools when you speak a sentence.</div>
+        <form id="builderForm" hidden>
+          <h3 id="builderTitle"></h3>
+          <p class="quiet" id="builderDesc"></p>
+          <div id="builderFields"></div>
+          <div class="builder-actions">
+            <button class="button ghost" type="submit" id="builderAdd">Add to chain</button>
+            <button class="button primary" type="button" id="builderPlan">Plan this call <span aria-hidden="true">&rarr;</span></button>
+          </div>
+        </form>
+        <div id="chainTray" hidden>
+          <p class="mono quiet">CHAIN &middot; RUNS IN ORDER</p>
+          <ol class="chain" id="chainList"></ol>
+          <div class="builder-actions">
+            <button class="button ghost" type="button" id="chainClear">Clear</button>
+            <button class="button primary" type="button" id="chainPlan">Plan the chain <span aria-hidden="true">&rarr;</span></button>
+          </div>
         </div>
       </div>
     </div>
@@ -215,6 +309,8 @@
           <tr><th scope="row">Launch an allowlisted app</th><td data-cell="launch_app">desktop only</td><td data-cell="launch_app_desktop">ready</td></tr>
           <tr><th scope="row">Phone notification (Home Assistant)</th><td data-cell="notify">desktop only</td><td data-cell="notify_desktop">needs setup</td></tr>
           <tr><th scope="row">Desk lamp brightness (Home Assistant)</th><td data-cell="light">desktop only</td><td data-cell="light_desktop">needs setup</td></tr>
+          <tr><th scope="row">MCP tools (messaging, code, files, browsers)</th><td data-cell="tools">demo tools only</td><td data-cell="tools_desktop">needs a server</td></tr>
+          <tr><th scope="row">Language-model planner</th><td>not available</td><td data-cell="model">needs a key</td></tr>
           <tr><th scope="row">Jev Choice routing</th><td>not available</td><td data-cell="jev">local rules</td></tr>
         </tbody>
       </table>
@@ -261,6 +357,12 @@
       <label>Home Assistant URL<input name="ha_url" type="url" placeholder="http://homeassistant.local:8123"></label>
       <label>Light entity ID<input name="light_entity" placeholder="light.desk_lamp"></label>
       <label>Phone notify service<input name="phone_service" placeholder="mobile_app_my_phone"></label>
+      <label>Model provider <small id="llmState">not connected</small>
+        <select name="llm_provider"><option value="">Off (local rules only)</option><option value="anthropic">Anthropic</option><option value="openai">OpenAI-compatible</option></select>
+      </label>
+      <label>Model name<input name="llm_model" placeholder="claude-haiku-5-5"></label>
+      <label>Model base URL (optional)<input name="llm_base_url" type="url" placeholder="http://localhost:11434/v1"></label>
+      <label>Model API key<input name="llm_key" type="password" autocomplete="off" placeholder="Leave blank to keep the current key"></label>
       <label>Jev API key <small id="jevState">not connected</small><input name="jev_key" type="password" autocomplete="off" placeholder="Leave blank to keep the current key"></label>
       <label>Home Assistant token <small id="haState">not connected</small><input name="ha_token" type="password" autocomplete="off" placeholder="Leave blank to keep the current token"></label>
       <div class="settings-actions">
@@ -283,6 +385,43 @@
     <a href="https://github.com/HamzaShaikh-source/flowmesh/releases/latest" rel="noopener">Windows release ↗</a>
   </nav>
 </footer>
+
+<dialog class="sheet" id="serverDialog" aria-labelledby="serverDialogTitle">
+  <form method="dialog" class="sheet-head">
+    <h3 id="serverDialogTitle">Add an MCP server</h3>
+    <button class="icon-button" aria-label="Close" value="close">&times;</button>
+  </form>
+  <p class="quiet">Templates fill in the command from each server&rsquo;s own docs. FlowMesh does not bundle, vendor or vouch for them.</p>
+  <div class="preset-grid" id="presetGrid"></div>
+  <form id="serverForm" class="server-form" autocomplete="off">
+    <p class="mono quiet" id="serverFormTitle">CUSTOM SERVER</p>
+    <div class="seg" role="radiogroup" aria-label="Transport">
+      <label><input type="radio" name="transport" value="stdio" checked> Local program (stdio)</label>
+      <label><input type="radio" name="transport" value="http"> Remote (HTTPS)</label>
+    </div>
+    <label>Id <small>lowercase, digits, - _</small><input name="id" required pattern="[a-z0-9][a-z0-9_\-]{0,31}" placeholder="files"></label>
+    <label>Name<input name="label" placeholder="Project files"></label>
+    <div data-t="stdio">
+      <label>Command<input name="command" placeholder="npx"></label>
+      <label>Arguments <small>one per line</small><textarea name="args" rows="3" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;C:\Users\you\projects"></textarea></label>
+      <label>Environment <small>NAME=value, one per line</small><textarea name="env" rows="2"></textarea></label>
+    </div>
+    <div data-t="http" hidden>
+      <label>URL<input name="url" type="url" placeholder="https://example.com/mcp"></label>
+      <label>Headers <small>Name: value, one per line</small><textarea name="headers" rows="2" placeholder="Authorization: Bearer ..."></textarea></label>
+    </div>
+    <label class="check"><input type="checkbox" name="auto_read"> <span>Let this server&rsquo;s <b>read-only</b> tools run without asking. Writes and deletes always ask.</span></label>
+    <label class="check danger-ack" data-t="stdio"><input type="checkbox" name="ack"> <span>I understand this <b>runs a program on this computer</b> with my permissions.</span></label>
+    <p class="mono quiet" id="serverFormMsg" role="status"></p>
+    <div class="sheet-foot"><button class="button primary" type="submit">Save and test <span aria-hidden="true">&rarr;</span></button></div>
+  </form>
+</dialog>
+
+<dialog class="palette" id="palette" aria-label="Command palette">
+  <input id="paletteInput" type="text" placeholder="Type an action&hellip;" autocomplete="off" aria-label="Filter actions">
+  <ul id="paletteList" role="listbox"></ul>
+  <p class="mono quiet">&uarr;&darr; to move &middot; Enter to run &middot; Esc to close</p>
+</dialog>
 
 <div class="live" id="liveRegion" role="status" aria-live="polite"></div>
 </body>

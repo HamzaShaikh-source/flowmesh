@@ -1002,6 +1002,7 @@ function createRuntime(options = {}) {
     plans,
     events,
     mcp,
+    killMcpNow: () => mcp.killAllNow(),
     planCommand,
     prepareToolPlan,
   };

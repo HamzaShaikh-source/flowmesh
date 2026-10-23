@@ -16,6 +16,7 @@ const TOOLS = [
   { name: 'slow', description: 'Sleep.', inputSchema: { type: 'object', properties: { seconds: { type: 'number' } } } },
   { name: 'big_output', description: 'A very long answer.', annotations: { readOnlyHint: true }, inputSchema: { type: 'object' } },
   { name: 'env_probe', description: 'Names of secret-looking env vars.', annotations: { readOnlyHint: true }, inputSchema: { type: 'object' } },
+  { name: 'pid', description: 'This server process id.', annotations: { readOnlyHint: true }, inputSchema: { type: 'object' } },
   { name: 'fail', description: 'Always errors.', inputSchema: { type: 'object' } },
   { name: 'ask_sampling', description: 'Ask the client to sample.', inputSchema: { type: 'object' } },
 ];
@@ -57,7 +58,8 @@ rl.on('line', (line) => {
     } else if (name === 'big_output') result = text(`x\u0000y\u0007z${'A'.repeat(100000)}`);
     else if (name === 'env_probe') {
       result = text(`leaked=${Object.keys(process.env).filter((k) => /SECRET|TOKEN|KEY/i.test(k)).sort().join(',')}`);
-    } else if (name === 'fail') result = text('it broke', true);
+    } else if (name === 'pid') result = text(String(process.pid));
+    else if (name === 'fail') result = text('it broke', true);
     else if (name === 'ask_sampling') {
       waitingForSampling = { id, name };
       send({ jsonrpc: '2.0', id: 9001, method: 'sampling/createMessage', params: {} });

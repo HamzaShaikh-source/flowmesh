@@ -306,6 +306,9 @@ if (!single) {
 
   app.on('before-quit', () => {
     globalShortcut.unregisterAll();
-    if (runtime) runtime.close();
+    if (runtime) {
+      runtime.killMcpNow();
+      runtime.close();
+    }
   });
 }

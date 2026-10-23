@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 
 from flowmesh_config import VERSION, public_settings, save, secret, settings
 from planner import FORBIDDEN, WORKFLOWS, actions_for, command_is_usable, local_route, other_intents
+import atexit
 import wispr_source
 from wispr_account import ACCOUNT, WisprAccountError
 from mcp_client import McpError
@@ -1000,6 +1001,10 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"cancelled": True})
             return
         self.send_json({"error": "Not found"}, 404)
+
+
+# Stdio MCP servers are child processes; never leave them running after FlowMesh exits.
+atexit.register(MANAGER.close_all)
 
 
 def serve(port: int = 0) -> ThreadingHTTPServer:

@@ -340,7 +340,22 @@ function createManager({ store, version = '0', fetchImpl = globalThis.fetch } = 
     return actions;
   }
 
-  return { listServers, get, upsert, remove, closeAll, tools, catalog, test, call, planActions, servers };
+  /** Synchronous last resort for process exit, where an async close would never finish. */
+  function killAllNow() {
+    for (const live of sessions.values()) {
+      const { child } = live.transport;
+      if (child && !live.transport.exited) {
+        try {
+          child.kill();
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+    sessions.clear();
+  }
+
+  return { listServers, get, upsert, remove, closeAll, killAllNow, tools, catalog, test, call, planActions, servers };
 }
 
 module.exports = {
