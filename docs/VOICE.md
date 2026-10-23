@@ -45,6 +45,39 @@ Off by default, because a video or a call could say "approve". When on, it works
 is on screen, less than two minutes old, has no `danger` call, does not need the second
 confirmation, and is not already running. Danger plans always need a click and their checkbox.
 
+## Driving the hosted site with Wispr (the voice harness)
+
+The hosted page cannot read Wispr's local history, but Wispr Flow types into whatever field has focus. So
+on the hosted page the dock has a **capture field** that keeps focus whenever you are not editing something
+else: hold your Wispr key, talk, and the words land there. A pause of about a second and a half (or Enter)
+sends the sentence on. It is then treated exactly like a spoken sentence: a *whole utterance* that matches a
+fixed command acts on the page; anything else is planned as a normal command and waits for your approval.
+Click into any other field and it steps aside; Escape leaves it; the dock's Wispr button turns it off.
+
+Say **"what can I say"** for the list, which is generated from the same data the grammar uses. In short:
+
+| Area | Examples |
+| --- | --- |
+| Go anywhere | "go to tools", "open history", "show the code page" |
+| Plan | "create the plan", "focus the box", "new plan", "try the research sprint example" |
+| Approve safely | "read it back", "cancel", "approve" (only if you turned it on; never for danger plans) |
+| Results | "open the latest run", "copy the record", "download the record", "plan the next step" |
+| Tools | "use the calculator tool", "set expression to 12 times 3", "add to the chain", "plan this call", "plan the chain", "clear the chain" |
+| The page | "open the palette", "scroll down", "go to the top", "start reading aloud" |
+
+How it stays safe:
+
+- Commands carry a type and an item from a fixed list (a page, an example, a tool). Nothing can name a path,
+  a program or a setting, and **no command can switch approval-by-voice on**: that is only a checkbox.
+- Every action presses the same button a person would, so the plan gate, the single-use plan, the danger
+  confirmation and the five-minute expiry all still apply. Saying "plan this call" never runs anything.
+- The one command with free words is `set <field> to <words>` (also "fill", "enter", "type"). It exists only
+  while a tool form is open, writes only into that visible form, and the result is still a plan. When no field
+  matches, the sentence is planned instead, so "set the desk lamp to 40 percent" is never swallowed.
+- Spoken operators in the calculator are converted ("times", "plus", "minus", "divided by").
+- On the **desktop app** the capture field is hidden: live pickup already reads Wispr's history, and the same
+  commands work there too.
+
 ## Reading results aloud
 
 *Read plans and results aloud* uses the device's speech synthesis. It speaks only FlowMesh's own
@@ -73,3 +106,14 @@ voice commands (on), approve by voice (off), read aloud (off).
 - The grammar is covered by unit tests, including sentences that contain command words.
 - **Not verified:** a real Wispr key press (the synthetic rows imitate Wispr's writes), the mic
   button in a real browser or in the Electron app, and speech synthesis output (a device feature).
+
+### What was verified for the harness (23 October 2026)
+
+In the real page, with a browser-mode session and real key events typed into the capture field: "go to tools"
+navigated; "use the calculator tool" opened the builder; "set expression to 12 times 3 plus 4" filled
+`12 * 3 + 4` and kept focus in the capture field; "plan this call" created a plan; "approve" was refused while
+voice approval was off and the plan stayed pending; the plan was approved with a click and returned a
+receipt; "what can I say" opened the help sheet; an ordinary routine sentence became a normal plan.
+**Not verified:** a real Wispr key press into the field (Wispr inserts text with its own timing, so the
+1.5 s pause is a guess to tune), speech synthesis output, and screen-reader behaviour of a field that holds
+focus (Escape and the dock toggle are the ways out).

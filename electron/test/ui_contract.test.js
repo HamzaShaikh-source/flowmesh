@@ -95,3 +95,11 @@ test('the Code page is wired: hosted notice, desktop block, live panel and the i
   assert.match(read('pages.js'), /code: 'Code'/);
   assert.match(read('voice-grammar.js'), /code: 'code'/);
 });
+
+test('the voice harness is wired: capture field, its toggle and the help sheet', () => {
+  for (const id of ['voiceCatch', 'catchBtn', 'voiceHelp', 'voiceHelpBody']) assert.ok(idsInHtml.includes(id), id);
+  const grammar = read('voice-grammar.js');
+  assert.match(grammar, /HELP_LIST/);
+  assert.doesNotMatch(read('voice.js'), /voiceApprove\s*=\s*true/, 'no voice command may switch approval-by-voice on');
+  assert.match(html, /<dialog class="sheet" id="voiceHelp"/);
+});

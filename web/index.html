@@ -617,9 +617,20 @@
   <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
   <span class="wake-badge mono" id="wakeBadge" hidden title="Listening for Hey FlowMesh">wake on</span>
   <span class="dock-text"><b id="dockTitle">Voice</b><span id="dockHint">Hold your Wispr key and talk</span></span>
+  <input class="dock-catch" id="voiceCatch" type="text" autocomplete="off" spellcheck="false" placeholder="Hold your Wispr key and talk" aria-label="Voice capture: Wispr Flow types here" hidden>
+  <button class="dock-btn quiet-btn" id="catchBtn" type="button" aria-pressed="true" aria-label="Capture Wispr Flow dictation on this page" title="Capture Wispr Flow dictation on this page" hidden><svg class="ico sm"><use href="#i-wispr"/></svg></button>
   <button class="dock-btn quiet-btn" id="speakBtn" type="button" aria-pressed="false" aria-label="Read plans and results aloud"><svg class="ico sm"><use href="#i-speaker"/></svg></button>
   <button class="dock-btn" id="micBtn" type="button" aria-pressed="false" aria-label="Start listening with this device's microphone"><svg class="ico"><use href="#i-mic"/></svg></button>
 </div>
+
+<dialog class="sheet" id="voiceHelp" aria-labelledby="voiceHelpTitle">
+  <form method="dialog" class="sheet-head">
+    <h3 id="voiceHelpTitle">What you can say</h3>
+    <button class="icon-button" aria-label="Close" value="close">&times;</button>
+  </form>
+  <p class="quiet small">Hold your Wispr key and say any of these as a whole sentence. Anything else becomes a plan you read and approve. Approval by voice is off unless you turn it on, and never works for danger plans.</p>
+  <div id="voiceHelpBody" class="voice-help"></div>
+</dialog>
 
 <dialog class="sheet" id="serverDialog" aria-labelledby="serverDialogTitle">
   <form method="dialog" class="sheet-head">

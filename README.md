@@ -97,6 +97,7 @@ sentence into a validated tool plan; it only proposes, and every call is re-chec
 - **Live pickup.** On the desktop app new dictations are read from Wispr's local history (read-only,
   a fixed allow-list of columns, never audio or screenshots) and planned automatically.
 - **Wake word.** Opt-in "Hey FlowMesh", detected offline by the speech recogniser built into Windows (no cloud, nothing transcribed), with a visible badge while your microphone is open. Optionally it presses your own Wispr shortcut. Accuracy with a real voice and a real Wispr shortcut is **not verified yet**: [docs/WAKE.md](docs/WAKE.md).
+- **A voice harness for the website.** On the hosted page a capture field in the dock keeps focus, so whatever Wispr types there is acted on: go anywhere, create the plan, try an example, open and copy the latest run, use a demo tool and fill its fields ("set expression to 12 times 3"), scroll, open the palette. It is the same safe grammar: whole sentences only, every action presses the same button a person would, nothing can switch approval-by-voice on. Say "what can I say". [docs/VOICE.md](docs/VOICE.md)
 - **Voice commands.** Only a *whole utterance* that matches a short fixed grammar ("go to tools",
   "cancel", "read it back", "approve" if you turn that on) acts on the app; anything else is an ordinary
   sentence that becomes a plan. Approval by voice is off by default and can never approve a `danger` plan.
@@ -207,7 +208,7 @@ The browser UI and every other local process are treated as untrusted. Full deta
 
 ```bash
 python -m unittest discover -s tests -v   # 321 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
-npm test                                  # 155 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
+npm test                                  # 163 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
 ```
 
 [docs/VERIFICATION.md](docs/VERIFICATION.md) is the dated log with exact commands, including what is *not*
