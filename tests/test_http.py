@@ -105,7 +105,7 @@ class LifecycleTests(BridgeTestCase):
         self.assertEqual(status, 200)
         data = self.json_of(body)
         self.assertEqual(data["mode"], "desktop_app")
-        self.assertEqual(data["version"], "1.7.2")
+        self.assertEqual(data["version"], "1.7.3")
         self.assertEqual(data["capabilities"]["write_note"], "ready")
         self.assertEqual(data["capabilities"]["notify"], "not_configured")
         self.assertEqual(data["capabilities"]["light"], "not_configured")

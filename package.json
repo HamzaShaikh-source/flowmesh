@@ -1,6 +1,6 @@
 {
   "name": "flowmesh",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "private": true,
   "description": "FlowMesh — say the work, approve the plan, watch real receipts.",
   "main": "electron/main.js",
