@@ -116,6 +116,14 @@ second gesture and the feature can be switched off.
   sent as key presses only, and nothing is approved by a wake. `FLOWMESH_WAKE=off` disables it. A
   same-user process holding the token could still turn it on, as with every other loopback route.
 
+## Councils
+
+Debate and judge-panel councils (see [AGENTS.md](AGENTS.md)) run agents in their read-only modes only,
+as one approved `read` plan that is never auto-run. Agent replies are untrusted data (parsed, clamped,
+validated). A judge panel reads a project folder, so the audit skips vendor folders and links, never shows a
+judge the text of a file that appears to hold a secret, and tells judges to treat text addressed to them
+as manipulation. Councils change nothing and are never `verified`.
+
 ## Messaging templates
 
 The Discord, Slack, Notion and Agent Switch entries on the Tools page are *templates* that fill in a

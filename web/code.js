@@ -214,7 +214,10 @@
     review: { roles: ['Works', 'Reviews (read-only)'], hint: 'The second agent starts only if the first finished cleanly, and sees its output as untrusted text.' },
     chain: { roles: ['Plans (read-only)', 'Builds', 'Reviews (read-only)'], hint: 'Each step starts only if the one before it finished cleanly, and sees its output as untrusted text.' },
     compare: { roles: ['Answer 1', 'Answer 2', 'Answer 3'], hint: 'Every agent answers the same task read-only, one after the other. Nothing is handed over and nothing is changed.' },
+    debate: { roles: ['Panelist 1', 'Panelist 2', 'Panelist 3'], hint: 'Four rounds, all read-only: each agent proposes approaches, critiques the others anonymously, answers the critique, then votes (never for its own). The result is the agents\u2019 opinion; FlowMesh does not check it.' },
+    judge: { roles: ['Judge 1', 'Judge 2', 'Judge 3'], hint: 'Each agent scores the project folder blind on a fixed rubric. The median is used and caps from measured facts (no tests, a committed secret, no README) cannot be argued past. Write what the project should do as the task.' },
   };
+  var PANELS = { compare: true, debate: true, judge: true };
 
   function canRead(agent) { return agent.modes.some(function (m) { return m.risk === 'read'; }); }
 
@@ -229,14 +232,14 @@
     $('taskAgentLabel').hidden = Boolean(team);
     holder.hidden = !team;
     $('teamHint').textContent = team ? team.hint : '';
-    $('modePick').hidden = kind === 'compare';
-    $('modeLegend').textContent = team && kind !== 'compare' ? 'How much may the working agent do?' : 'How much may it do?';
+    $('modePick').hidden = Boolean(PANELS[kind]);
+    $('modeLegend').textContent = team && !PANELS[kind] ? 'How much may the working agent do?' : 'How much may it do?';
     if (!team) { paintModes(); return; }
     var installed = installedAgents();
-    var count = kind === 'compare' ? Math.min(3, Math.max(2, installed.length)) : team.roles.length;
+    var count = PANELS[kind] ? Math.min(3, Math.max(2, installed.filter(canRead).length)) : team.roles.length;
     for (var i = 0; i < count; i += 1) {
       var role = team.roles[i];
-      var readOnlyStep = kind === 'compare' || /read-only/.test(role);
+      var readOnlyStep = Boolean(PANELS[kind]) || /read-only/.test(role);
       var options = installed.filter(function (a) { return !readOnlyStep || canRead(a); });
       var label = el('label', null, role);
       var select = el('select');
@@ -293,6 +296,7 @@
     if (!body.prompt.trim()) { UI.toast('Describe the task first.'); return; }
     var request;
     if (kind === 'single') request = UI.api('/api/agents/plan', body);
+    else if (kind === 'debate' || kind === 'judge') request = UI.api('/api/agents/council', { kind: kind, workspace: body.workspace, prompt: body.prompt, agents: teamAgents() });
     else request = UI.api('/api/agents/relay', { kind: kind, workspace: body.workspace, prompt: body.prompt, agents: teamAgents(), mode: kind === 'compare' ? 'edit' : mode });
     var button = $('taskPlan');
     button.setAttribute('aria-busy', 'true');
@@ -311,7 +315,7 @@
 
   function stepsOf(plan) {
     return (plan.actions || []).filter(function (a) { return a.kind === 'agent_run'; }).map(function (a) {
-      return { id: a.run_id, label: a.agent_label + (a.role && a.role !== 'work' ? ' \u00b7 ' + a.role : ''), view: null };
+      return { id: a.run_id, label: a.agent_label + (a.kind !== 'council_run' && a.role && a.role !== 'work' ? ' \u00b7 ' + a.role : ''), view: null };
     });
   }
 

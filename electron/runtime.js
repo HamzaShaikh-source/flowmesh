@@ -356,6 +356,15 @@ function createRuntime(options = {}) {
   /** Store a plan made of agent_run steps (plus the run record). Risk is the highest step's. */
   function registerAgentPlan(actions, title, description, command, source, note) {
     for (const action of actions) {
+      if (action.kind === 'council_run') {
+        action.about = 'Every member runs read-only. Nothing in the folder is changed.';
+        action.command = action.members.map((member) => {
+          const memberAgent = agentById(agents.catalog, member.agent);
+          const memberMode = memberAgent.modes.find((m) => m.id === member.mode);
+          return `${member.label}: ${agentPreview(memberAgent, memberMode, action.workspace_path)}`;
+        }).join('\n');
+        continue;
+      }
       const agent = agentById(agents.catalog, action.agent);
       const mode = agent.modes.find((m) => m.id === action.mode);
       action.about = mode.about;
@@ -398,6 +407,18 @@ function createRuntime(options = {}) {
     const mode = agent.modes.find((m) => m.id === action.mode);
     const description = `${action.agent_label} will work in ${action.workspace_path} (${mode.label.toLowerCase()}). ${mode.about}`;
     return registerAgentPlan([action], 'Coding task', description, command, source, `(built on the Code page: ${action.prompt.slice(0, 200)})`);
+  }
+
+  const COUNCIL_TITLES = { debate: 'Debate: propose, critique, vote', judge: 'Judge panel: blind scoring' };
+
+  /** A council: several agents think together, read-only, and FlowMesh reports their opinions. Throws AgentError. */
+  function prepareCouncilPlan(kind, workspaceId, prompt, agentIds, command = '', source = 'builder') {
+    const action = agents.planCouncil(kind, workspaceId, prompt, agentIds);
+    const rounds = kind === 'debate'
+      ? 'Four rounds: each agent proposes, critiques the others anonymously, answers the critique, then votes (never for its own).'
+      : 'Each agent scores the folder blind on a fixed rubric; the median is used and caps from measured facts apply.';
+    const description = `${action.members.length} agents in ${action.workspace_path}, all read-only. ${rounds} This changes nothing, and the result is the agents' opinion that FlowMesh does not verify.`;
+    return registerAgentPlan([action], COUNCIL_TITLES[kind], description, command, source, `(built on the Code page: ${action.prompt.slice(0, 200)})`);
   }
 
   const RELAY_TITLES = { review: 'Work, then review', chain: 'Plan, build, review', compare: 'Compare agents' };
@@ -585,6 +606,9 @@ function createRuntime(options = {}) {
     const kind = action.kind;
     const target = action.target;
     if (kind === 'mcp_call') return performMcp(action);
+    if (kind === 'council_run') {
+      return agentsEnabled() ? agents.runCouncil(action) : { status: 'denied', detail: 'Coding agents are disabled on this install (FLOWMESH_AGENTS=off).' };
+    }
     if (kind === 'agent_run') {
       return agentsEnabled() ? agents.run(action) : { status: 'denied', detail: 'Coding agents are disabled on this install (FLOWMESH_AGENTS=off).' };
     }
@@ -1007,6 +1031,12 @@ function createRuntime(options = {}) {
           return;
         }
         sendJson(response, prepareAgentPlan(body.agent, body.workspace, body.mode, body.prompt));
+      } else if (pathname === '/api/agents/council') {
+        if (Object.keys(body).some((key) => !['kind', 'workspace', 'prompt', 'agents'].includes(key))) {
+          sendJson(response, { error: 'Invalid request' }, 400);
+          return;
+        }
+        sendJson(response, prepareCouncilPlan(body.kind, body.workspace, body.prompt, body.agents));
       } else if (pathname === '/api/agents/relay') {
         if (Object.keys(body).some((key) => !['kind', 'workspace', 'prompt', 'agents', 'mode'].includes(key))) {
           sendJson(response, { error: 'Invalid request' }, 400);
@@ -1312,6 +1342,7 @@ function createRuntime(options = {}) {
     killAgentsNow: () => { agents.killAllNow(); wake.stop(); },
     prepareAgentPlan,
     prepareRelayPlan,
+    prepareCouncilPlan,
     planCommand,
     prepareToolPlan,
   };

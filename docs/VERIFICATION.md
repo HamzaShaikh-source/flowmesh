@@ -273,7 +273,7 @@ Windows 11, the author's machine, Python 3.12, Node 24 test runner.
 | Detection of the six CLIs | all six found on `PATH`; Claude Code reported `loggedIn: true` via claude.ai, Codex reported "Logged in using ChatGPT" |
 | Real Codex run through the HTTP bridge (read-only, empty throwaway repo) | plan `risk: read`; command `codex exec -s read-only -C <folder> -` with the task on stdin; receipt `returned`; git saw 0 changed files. Codex could not start PowerShell inside its Windows sandbox, so it did not answer the question: a good demonstration that `returned` is not `verified` |
 | Real Claude Code run through the browser UI (read-only) | plan, approve and the live panel worked; the run ended `failed` with Claude's own "OAuth session expired and could not be refreshed". git saw two untracked files, written by hooks in the author's own Claude setup, and the receipt lists them without claiming the agent made them |
-| Full suites | Python 282 tests OK, Node 145 tests OK (after relays and the wake word; the earlier 34+15+15+7 agent tests are part of these) (includes 34 agent module, 15 Python bridge, 15 Electron runtime and 7 parity tests, all against a mock agent) |
+| Full suites | Python 321 tests OK, Node 155 tests OK (after relays, the wake word and councils; the earlier 34+15+15+7 agent tests are part of these) (includes 34 agent module, 15 Python bridge, 15 Electron runtime and 7 parity tests, all against a mock agent) |
 | Templates: Discord, Slack, Notion, Agent Switch | the Tools page fills command, arguments and the token placeholder correctly (checked in the UI); the servers themselves were **not** started |
 
 **Not verified:** an agent run that edits files with a real model; any real run of Antigravity,
@@ -286,3 +286,11 @@ Notion or Switch.
 | --- | --- |
 | Relays (review, chain, compare) | planned and run through both runtimes against the mock agent: handoff text arrives as untrusted data, a failed step skips the rest, full access needs the second confirmation, an agent with no read-only mode is refused as a reviewer. The three-agent plan renders in the real UI with real agent names; it was **not run** with real models |
 | Wake word | the Windows recogniser (en-US) started on this machine's default microphone through the real UI: state `listening`, badge shown, then switched off. **Nobody spoke to it**, so hearing accuracy, false wakes and a real Wispr shortcut press are not verified |
+
+## Councils (23 October 2026)
+
+| Check | Result |
+| --- | --- |
+| Debate and judge panel, both runtimes | scripted agents (with banners and echoed prompts, like real CLIs) and the mock agent CLI: anonymous shuffled ideas, no self-votes, tie-breaking, silent or invalid agents, withdrawals, cancellation, blind prompts, median and caps, partial scorecards rejected, secrets never shown; Python and Node produce identical parses, tallies, audits, aggregates and reports (parity tests) |
+| Real UI | a three-agent debate plan (Claude Code, Codex, Antigravity) was created: `read` risk, not auto-run, three commands listed; it was **not run** |
+| Not verified | any council with real models: whether real CLIs return parseable JSON reliably, how long four rounds take, and how useful the votes and scores are |

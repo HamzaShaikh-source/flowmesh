@@ -138,7 +138,7 @@ async function withRuntime(fn, { env = {} } = {}) {
   const { wake, procs, pressed, dir } = make();
   const runEnv = { ...process.env, FLOWMESH_ARTIFACT_DIR: path.join(dir, 'runs'), ...env };
   const store = createStore({ dir: path.join(dir, 'cfg'), env: runEnv, cipher: null });
-  const runtime = createRuntime({ port: 0, host: '127.0.0.1', store, env: runEnv, wakeManager: wake, wakeTimerMs: 60 });
+  const runtime = createRuntime({ port: 0, host: '127.0.0.1', store, env: runEnv, wakeManager: wake, wakeTimerMs: 1000 });
   const port = await runtime.listen(0);
   const call = (route, init = {}, token = runtime.sessionToken) =>
     fetch(`http://127.0.0.1:${port}${route}`, {

@@ -159,3 +159,41 @@ their exact commands. The rules that matter:
 - Each step has its own receipt, run id and live output; **Stop** stops the running one and the rest are skipped.
 
 Not verified with real models: the relays are tested end to end against the mock agent, in both runtimes.
+
+## Councils: debate and a blind judge panel
+
+Two more patterns put two to four agents to work **read-only** and report what they said. They are
+ported from the author's earlier K.O.D.E. project (team-level orchestration of coding agents) and
+adapted to one computer. On the Code page they are in **Team up**; over HTTP it is `POST /api/agents/council`.
+
+**Debate** (`kind: "debate"`): four rounds. Each agent studies the problem and the project folder and
+proposes approaches; the approaches are shuffled and made anonymous and each agent critiques the others'
+on five criteria; each author answers the critique and improves or withdraws (never leaving fewer than
+two); each agent then scores the survivors and casts one vote, never for its own. Most votes win; ties
+go to the higher mean score, then the lower id. The agents' votes are the result.
+
+**Judge panel** (`kind: "judge"`): each agent scores the folder on a fixed seven-criterion rubric (fit,
+function, quality, testing, docs, security, innovation) from the brief you wrote plus evidence FlowMesh
+gathers: a deterministic audit (file list, source lines, test files, README, TODO/placeholder text, stray
+files) and short samples of the largest source and test files. Judges are blind (no authors, no history);
+the **median** per criterion is used; **caps from measured facts** cannot be argued past (no tests caps
+testing at 3, a committed secret caps security at 3, a missing README caps docs at 3); disagreements of
+2.5 points or more are listed; text in the project that addresses a reviewer is to be reported as an
+attempt at manipulation. If the audit sees a possible secret, the file's text is never shown to a judge.
+
+Rules shared by both:
+
+- Every member runs in its **read-only mode only**, in a registered folder, with the usual environment
+  policy, timeouts and process control. An agent with no read-only headless mode (OpenCode) cannot join.
+- The plan is one `read` step listing every member and its exact command; it is never auto-run. Progress
+  streams on the Flow page and **Stop** stops the running agent call and ends the council.
+- Replies are untrusted data: parsed from noisy CLI output (the last matching JSON object wins, since
+  CLIs echo prompts), size-clamped, ids validated, scores clamped to range. A member that fails or
+  answers badly is reported and the rest continue; if nobody usable remains the council fails honestly.
+- The receipt is `returned` at best and says these are the agents' opinions, that FlowMesh did not check
+  them, and that nothing in the folder changed. The prompts, rubric and report formats are generated
+  from one source (`council.py`) into `electron/council_text.js`, and parity tests compare both runtimes.
+
+Not verified with real models: both patterns are tested end to end against scripted and mock agents in both
+runtimes, and a three-agent debate plan renders in the real UI, but no real council has been run, so how
+useful the opinions are (and how often real CLIs return parseable JSON) is unmeasured.

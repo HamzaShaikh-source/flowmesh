@@ -237,14 +237,14 @@ def agent_by_id(catalog: list[dict], agent_id: str) -> dict | None:
     return next((a for a in catalog if a["id"] == agent_id), None)
 
 
-def clean_prompt(prompt: object) -> str:
+def clean_prompt(prompt: object, max_chars: int = MAX_PROMPT_CHARS) -> str:
     if not isinstance(prompt, str):
         raise AgentError("bad_prompt", "Describe the task in text.")
     text = prompt.replace("\r\n", "\n").strip()
     if not text:
         raise AgentError("bad_prompt", "Describe the task first.")
-    if len(text) > MAX_PROMPT_CHARS:
-        raise AgentError("bad_prompt", f"Keep the task under {MAX_PROMPT_CHARS} characters.")
+    if len(text) > max_chars:
+        raise AgentError("bad_prompt", f"Keep the task under {max_chars} characters.")
     if "\x00" in text:
         raise AgentError("bad_prompt", "The task contains an invalid character.")
     return text
@@ -431,6 +431,7 @@ class AgentManager:
         self._detected: dict[str, dict] = {}
         self._detected_at = 0.0
         self._detecting = False
+        self._councils: dict[str, dict] = {}
 
     # -- configuration (project folders and defaults; no secrets)
 
@@ -566,7 +567,7 @@ class AgentManager:
 
     # -- planning
 
-    def plan_action(self, agent_id: object, workspace_id: object, mode_id: object, prompt: object) -> dict:
+    def plan_action(self, agent_id: object, workspace_id: object, mode_id: object, prompt: object, max_chars: int = MAX_PROMPT_CHARS) -> dict:
         agent = agent_by_id(self.catalog, agent_id) if isinstance(agent_id, str) else None
         if agent is None:
             raise AgentError("unknown_agent", "That coding agent is not supported.")
@@ -579,14 +580,14 @@ class AgentManager:
         mode = next((m for m in agent["modes"] if m["id"] == mode_id), None)
         if mode is None:
             raise AgentError("bad_mode", f"{agent['label']} does not offer that mode.")
-        text = clean_prompt(prompt)
+        text = clean_prompt(prompt, max_chars)
         build_command(agent, mode, folder, text, "PROMPTFILE")  # fail now, not after approval
         return {
             "kind": "agent_run", "target": f"{agent['id']}/{space['id']}", "label": f"{agent['label']}: {mode['label']}",
             "detail": f"in {space['label']} · {text.replace(chr(10), ' ')[:90]}{'…' if len(text) > 90 else ''}",
             "surface": "code", "agent": agent["id"], "agent_label": agent["label"], "workspace": space["id"], "workspace_path": str(folder),
             "mode": mode["id"], "mode_label": mode["label"], "risk": mode["risk"], "prompt": text, "run_id": secrets.token_urlsafe(12),
-            "auto_ok": False,
+            "auto_ok": False, **({"max_chars": max_chars} if max_chars != MAX_PROMPT_CHARS else {}),
         }
 
     def plan_relay(self, kind: object, workspace_id: object, prompt: object, agent_ids: object, mode_id: object = "edit") -> list[dict]:
@@ -640,7 +641,9 @@ class AgentManager:
             return {"status": "denied", "detail": "That coding task is no longer valid."}
         try:
             folder = validate_folder(space["path"])  # re-resolved now: a symlink or move since planning must not escape
-            prompt = clean_prompt(action.get("prompt"))
+            limit = action.get("max_chars")
+            limit = limit if isinstance(limit, int) and not isinstance(limit, bool) and MAX_PROMPT_CHARS <= limit <= 20_000 else MAX_PROMPT_CHARS
+            prompt = clean_prompt(action.get("prompt"), limit)
         except AgentError as exc:
             return {"status": "denied", "detail": exc.message}
         if str(folder) != action.get("workspace_path"):
@@ -649,7 +652,7 @@ class AgentManager:
         if not executable:
             return {"status": "unavailable", "detail": f"{agent['label']} is not installed."}
         with self._lock:
-            if sum(1 for r in self._runs.values() if r.status == "running") >= MAX_CONCURRENT_RUNS:
+            if sum(1 for r in self._runs.values() if r.status == "running" and r.agent != "council") >= MAX_CONCURRENT_RUNS:
                 return {"status": "unavailable", "detail": "Too many coding runs are already going. Wait for one to finish."}
             run = Run(run_id, agent["id"], folder, mode["id"])
             self._runs[run_id] = run
@@ -757,6 +760,13 @@ class AgentManager:
 
     def cancel(self, run_id: str) -> bool:
         run = self._runs.get(run_id) if isinstance(run_id, str) and RUN_ID.fullmatch(run_id) else None
+        state = self._councils.get(run_id) if run is not None else None
+        if state is not None and run.status == "running":
+            run.stop_reason = "cancelled"
+            state["cancelled"] = True
+            for inner in list(state["inner"]):
+                self.cancel(inner)
+            return True
         if run is None or run.status != "running" or run.proc is None:
             return False
         run.stop_reason = "cancelled"
@@ -768,6 +778,97 @@ class AgentManager:
             if run.status == "running" and run.proc is not None:
                 run.stop_reason = "cancelled"
                 kill_tree(run.proc)
+
+    # -- councils: several agents think together, read-only
+
+    def plan_council(self, kind: object, workspace_id: object, prompt: object, agent_ids: object) -> dict:
+        """The single action for a debate or judge panel. Every member runs in its read-only mode only."""
+        import council
+
+        if kind not in council.KINDS:
+            raise AgentError("bad_request", "A council is a debate or a judge panel.")
+        if (not isinstance(agent_ids, list) or not all(isinstance(a, str) for a in agent_ids) or len(set(agent_ids)) != len(agent_ids)
+                or not council.MIN_AGENTS <= len(agent_ids) <= council.MAX_AGENTS):
+            raise AgentError("bad_request", f"A council needs {council.MIN_AGENTS} to {council.MAX_AGENTS} different agents.")
+        space = self.workspace(workspace_id) if isinstance(workspace_id, str) else None
+        if space is None:
+            raise AgentError("no_workspace", "Choose one of your project folders first (add one on the Code page).")
+        folder = validate_folder(space["path"])
+        text = clean_prompt(prompt, 2000)
+        members = []
+        for agent_id in agent_ids:
+            agent = agent_by_id(self.catalog, agent_id)
+            if agent is None:
+                raise AgentError("unknown_agent", "That coding agent is not supported.")
+            if not self._executable(agent):
+                raise AgentError("not_installed", f"{agent['label']} is not installed on this computer (no '{agent['command']}' on your PATH).")
+            members.append({"agent": agent_id, "label": agent["label"], "mode": read_mode(agent)["id"]})
+        title = "Debate panel" if kind == "debate" else "Judge panel"
+        names = ", ".join(m["label"] for m in members)
+        return {
+            "kind": "council_run", "target": f"council/{kind}/{space['id']}", "label": f"{title}: {names}",
+            "detail": f"in {space['label']} · {text.replace(chr(10), ' ')[:90]}{'…' if len(text) > 90 else ''}",
+            "surface": "code", "agent": "council", "agent_label": title, "workspace": space["id"], "workspace_path": str(folder),
+            "mode": "plan", "mode_label": "Read-only", "risk": READ, "prompt": text, "run_id": secrets.token_urlsafe(12),
+            "auto_ok": False, "council_kind": kind, "members": members, "role": kind,
+        }
+
+    def run_council(self, action: dict, ask=None, timeout_s: int = 0) -> dict:
+        """Run an approved council action to completion and return a receipt."""
+        import council
+
+        kind = action.get("council_kind")
+        members = action.get("members")
+        space = self.workspace(action.get("workspace")) if isinstance(action.get("workspace"), str) else None
+        run_id = action.get("run_id")
+        ids = [m.get("agent") for m in members] if isinstance(members, list) and all(isinstance(m, dict) for m in members) else []
+        if not (kind in council.KINDS and space and isinstance(run_id, str) and RUN_ID.fullmatch(run_id)
+                and council.MIN_AGENTS <= len(ids) <= council.MAX_AGENTS and all(agent_by_id(self.catalog, a) for a in ids)):
+            return {"status": "denied", "detail": "That council is no longer valid."}
+        try:
+            folder = validate_folder(space["path"])
+            problem = clean_prompt(action.get("prompt"), 2000)
+        except AgentError as exc:
+            return {"status": "denied", "detail": exc.message}
+        if str(folder) != action.get("workspace_path"):
+            return {"status": "denied", "detail": "The project folder changed since the plan was made. Plan it again."}
+        with self._lock:
+            if any(r.status == "running" and r.agent == "council" for r in self._runs.values()):
+                return {"status": "unavailable", "detail": "Another council is already running. Wait for it to finish."}
+            run = Run(run_id, "council", folder, "plan")
+            self._runs[run_id] = run
+            state = {"cancelled": False, "inner": set()}
+            self._councils[run_id] = state
+        labels = {a: agent_by_id(self.catalog, a)["label"] for a in ids}
+
+        def default_ask(agent_id: str, prompt: str) -> str | None:
+            agent = agent_by_id(self.catalog, agent_id)
+            inner = self.plan_action(agent_id, space["id"], read_mode(agent)["id"], prompt, council.COUNCIL_PROMPT_CHARS)
+            state["inner"].add(inner["run_id"])
+            try:
+                receipt = self.run(inner, timeout_s=council.CALL_TIMEOUT_S)
+            finally:
+                state["inner"].discard(inner["run_id"])
+            return receipt.get("output") if receipt.get("status") == "returned" else None
+
+        panel = council.Council(ask or default_ask, labels, lambda text: run.add(text + "\n"), lambda: state["cancelled"], seed=run_id)
+        try:
+            if kind == "debate":
+                report = council.report_debate(panel.debate(problem, ids), labels)
+            else:
+                report = council.report_judge(panel.judge(problem, council.audit_folder(folder), ids), labels)
+        except council.Cancelled:
+            self._finish(run, "cancelled")
+            return {"status": "failed", "detail": "The council was stopped before it finished.", "output": run.text(council.COUNCIL_PROMPT_CHARS)}
+        except RuntimeError as exc:
+            self._finish(run, "failed", str(exc))
+            return {"status": "failed", "detail": f"The council could not finish: {exc}.", "output": run.text(council.COUNCIL_PROMPT_CHARS)}
+        finally:
+            self._councils.pop(run_id, None)
+        self._finish(run, "done")
+        took = int(run.finished - run.started) if run.finished else 0
+        return {"status": "returned", "detail": f"The council finished in {took} s. These are the agents' opinions; FlowMesh did not check them. Nothing in the folder was changed.",
+                "output": report}
 
     # -- sign-in: the vendor's own login, in a real terminal
 

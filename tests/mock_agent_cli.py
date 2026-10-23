@@ -36,6 +36,32 @@ elif "--file" in argv:
 leaked = sorted(k for k in os.environ if k.upper().startswith(("FLOWMESH_", "TYPESAFE_")))
 print(json.dumps({"argv": argv, "cwd": os.getcwd(), "task": task, "leaked": leaked, "no_color": os.environ.get("NO_COLOR")}), flush=True)
 
+def council_reply(text):
+    """What a cooperative agent would answer to a council prompt (debate rounds or a judge scorecard)."""
+    ids = re.findall(r"^(I\d+): ", text, re.M)
+    own_match = re.search(r"Your own approaches are ([I0-9, ]+?)[ (:]", text)
+    mine = set(re.findall(r"I\d+", own_match.group(1))) if own_match else set()
+    others = [i for i in ids if i not in mine]
+    if "distinct, concrete" in text:
+        who = str(os.getpid())
+        return {"ideas": [{"title": f"approach {who} {n}", "pitch": "a pitch", "research": ["r"], "stack": "py", "mvp": "m", "risks": "x"} for n in (1, 2)]}
+    if "reviewing approaches" in text:
+        return {"reviews": [{"id": i, "strengths": "s", "weaknesses": "w", "scores": {"impact": 7, "feasibility": 6, "novelty": 5, "demo": 8, "fit": 7}} for i in others]}
+    if "were reviewed anonymously" in text:
+        return {"revisions": [{"id": i, "withdraw": False, "response": "ok", "pitch": "better", "mvp": "better"} for i in ids]}
+    if "Final vote" in text:
+        return {"scores": [{"id": i, "score": 7} for i in others], "vote": others[0], "reason": "first other idea"}
+    if "member of a panel judging" in text:
+        keys = ["fit", "function", "quality", "testing", "docs", "security", "innovation"]
+        return {"scores": {k: {"score": 7.0, "evidence": k} for k in keys}, "strengths": ["clear"], "improvements": [], "summary": "fine"}
+    return None
+
+
+reply = council_reply(task) if task else None
+if reply is not None:
+    print(json.dumps(reply), flush=True)
+    sys.exit(0)
+
 if "ANSI" in task:
     print("\x1b[31mred\x1b[0m \x1b]0;title\x07plain \x07bell \x00nul")
 if m := re.search(r"WRITE:([\w.]+)", task):

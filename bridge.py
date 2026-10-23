@@ -379,6 +379,15 @@ def agents_enabled() -> bool:
 def register_agent_plan(actions: list[dict], title: str, description: str, command: str, source: str, note: str) -> dict:
     """Store a plan made of agent_run steps (plus the run record). Risk is the highest step's."""
     for action in actions:
+        if action["kind"] == "council_run":
+            previews = []
+            for member in action["members"]:
+                member_agent = agent_by_id(AGENTS.catalog, member["agent"])
+                member_mode = next(m for m in member_agent["modes"] if m["id"] == member["mode"])
+                previews.append(f"{member['label']}: " + agents_preview(member_agent, member_mode, action["workspace_path"]))
+            action["about"] = "Every member runs read-only. Nothing in the folder is changed."
+            action["command"] = "\n".join(previews)
+            continue
         agent = agent_by_id(AGENTS.catalog, action["agent"])
         mode = next(m for m in agent["modes"] if m["id"] == action["mode"])
         action["about"] = mode["about"]
@@ -413,6 +422,21 @@ def prepare_agent_plan(agent_id: object, workspace_id: object, mode_id: object, 
     mode = next(m for m in agent["modes"] if m["id"] == action["mode"])
     description = f"{action['agent_label']} will work in {action['workspace_path']} ({mode['label'].lower()}). {mode['about']}"
     return register_agent_plan([action], "Coding task", description, command, source,
+                               f"(built on the Code page: {action['prompt'][:200]})")
+
+
+COUNCIL_TITLES = {"debate": "Debate: propose, critique, vote", "judge": "Judge panel: blind scoring"}
+
+
+def prepare_council_plan(kind: object, workspace_id: object, prompt: object, agent_ids: object,
+                         command: str = "", source: str = "builder") -> dict:
+    """A council: several agents think together, read-only, and FlowMesh reports their opinions. Raises AgentError."""
+    action = AGENTS.plan_council(kind, workspace_id, prompt, agent_ids)
+    rounds = ("Four rounds: each agent proposes, critiques the others anonymously, answers the critique, then votes (never for its own)."
+              if kind == "debate" else "Each agent scores the folder blind on a fixed rubric; the median is used and caps from measured facts apply.")
+    description = (f"{len(action['members'])} agents in {action['workspace_path']}, all read-only. {rounds} "
+                   "This changes nothing, and the result is the agents' opinion that FlowMesh does not verify.")
+    return register_agent_plan([action], COUNCIL_TITLES[kind], description, command, source,
                                f"(built on the Code page: {action['prompt'][:200]})")
 
 
@@ -810,6 +834,8 @@ def perform(action: dict) -> dict:
     """Execute one allowlisted action. No raw paths, URLs, or commands accepted."""
     kind = action.get("kind")
     target = action.get("target")
+    if kind == "council_run":
+        return AGENTS.run_council(action) if agents_enabled() else {"status": "denied", "detail": "Coding agents are disabled on this install (FLOWMESH_AGENTS=off)."}
     if kind == "agent_run":
         return AGENTS.run(action) if agents_enabled() else {"status": "denied", "detail": "Coding agents are disabled on this install (FLOWMESH_AGENTS=off)."}
     if kind == "mcp_call":
@@ -949,6 +975,11 @@ class Handler(SimpleHTTPRequestHandler):
                     self.send_json({"error": "Invalid request"}, 400)
                     return
                 self.send_json(prepare_agent_plan(body.get("agent"), body.get("workspace"), body.get("mode"), body.get("prompt")))
+            elif path == "/api/agents/council":
+                if set(body) - {"kind", "workspace", "prompt", "agents"}:
+                    self.send_json({"error": "Invalid request"}, 400)
+                    return
+                self.send_json(prepare_council_plan(body.get("kind"), body.get("workspace"), body.get("prompt"), body.get("agents")))
             elif path == "/api/agents/relay":
                 if set(body) - {"kind", "workspace", "prompt", "agents", "mode"}:
                     self.send_json({"error": "Invalid request"}, 400)

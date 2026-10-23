@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import agents  # noqa: E402
+import council  # noqa: E402
 import wake  # noqa: E402
 
 HEADER = """'use strict';
@@ -42,7 +43,19 @@ def render_wake() -> str:
     return header + (chr(10) * 2).join(parts) + chr(10)
 
 
+def render_council() -> str:
+    header = HEADER.replace("The coding agents FlowMesh can drive. GENERATED from agents.py", "The council prompts, rubric and limits. GENERATED from council.py")
+    names = ["PROPOSE", "CRITIQUE", "REBUT", "VOTE", "RUBRIC", "SCALE", "JUDGE_SYSTEM"]
+    parts = [f"const {n} = " + json.dumps(getattr(council, n)) + ";" for n in names]
+    parts.append("const CRIT = " + json.dumps(list(council.CRIT)) + ";")
+    parts.append("const CRITERIA = " + json.dumps([list(c) for c in council.CRITERIA], indent=2) + ";")
+    parts.append("const LIMITS = " + json.dumps({"COUNCIL_PROMPT_CHARS": council.COUNCIL_PROMPT_CHARS, "CALL_TIMEOUT_S": council.CALL_TIMEOUT_S, "MIN_AGENTS": council.MIN_AGENTS, "MAX_AGENTS": council.MAX_AGENTS}) + ";")
+    parts.append("module.exports = { " + ", ".join(names + ["CRIT", "CRITERIA", "LIMITS"]) + " };")
+    return header + (chr(10) * 2).join(parts) + chr(10)
+
+
 if __name__ == "__main__":
     (ROOT / "electron" / "agents_catalog.js").write_text(render(), encoding="utf-8", newline="\n")
     (ROOT / "electron" / "wake_script.js").write_text(render_wake(), encoding="utf-8", newline=chr(10))
-    print("wrote electron/agents_catalog.js and electron/wake_script.js")
+    (ROOT / "electron" / "council_text.js").write_text(render_council(), encoding="utf-8", newline=chr(10))
+    print("wrote electron/agents_catalog.js, wake_script.js and council_text.js")

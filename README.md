@@ -70,6 +70,8 @@ FlowMesh drives the agent CLI you already have. Details, limits and what is not 
 5. **Read the receipt.** A coding task is `returned` at best, never `verified`: FlowMesh did not check
    the work. For a git repository it also reports exactly which files and commits git saw change.
 
+**Councils.** *Debate*: agents propose approaches, critique each other anonymously, answer the critique and vote (never for their own). *Judge panel*: agents score your project folder blind on a fixed rubric, with the median taken and caps from measured facts (no tests, a committed secret, no README) that cannot be argued past. Both are read-only, one approved plan, and report the agents' opinion without checking it ([details](docs/AGENTS.md#councils-debate-and-a-blind-judge-panel)); ported from my earlier K.O.D.E. project.
+
 **Team up.** Put two to four agents in one plan: one works and another reviews it read-only, plan then build then review, or several answer the same task read-only to compare. Risk is the highest step's, a step runs only if the one before it finished cleanly, and the earlier output reaches the next agent as quoted, untrusted data ([details](docs/AGENTS.md#teaming-up-several-agents-in-one-plan)).
 
 You can also say it: *"ask Codex to fix the failing test"* works with `claude`, `claude code`, `codex`,
@@ -204,8 +206,8 @@ The browser UI and every other local process are treated as untrusted. Full deta
 ## Tests and what has actually been run
 
 ```bash
-python -m unittest discover -s tests -v   # 282 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
-npm test                                  # 145 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
+python -m unittest discover -s tests -v   # 321 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
+npm test                                  # 155 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
 ```
 
 [docs/VERIFICATION.md](docs/VERIFICATION.md) is the dated log with exact commands, including what is *not*

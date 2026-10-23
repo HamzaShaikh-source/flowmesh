@@ -14,6 +14,7 @@ const crypto = require('node:crypto');
 const { spawn, spawnSync, execFile } = require('node:child_process');
 
 const { CATALOG, ALIASES } = require('./agents_catalog.js');
+const councilModule = require('./council.js');
 const { BATCH_UNSAFE, cleanOutput, resolveCommand, launchPlan, McpError } = require('./mcp_client.js');
 
 const BLOB = 'agents';
@@ -69,11 +70,11 @@ function agentById(catalog, id) {
   return catalog.find((a) => a.id === id) || null;
 }
 
-function cleanPrompt(prompt) {
+function cleanPrompt(prompt, maxChars = MAX_PROMPT_CHARS) {
   if (typeof prompt !== 'string') throw new AgentError('bad_prompt', 'Describe the task in text.');
   const text = prompt.replace(/\r\n/g, '\n').trim();
   if (!text) throw new AgentError('bad_prompt', 'Describe the task first.');
-  if ([...text].length > MAX_PROMPT_CHARS) throw new AgentError('bad_prompt', `Keep the task under ${MAX_PROMPT_CHARS} characters.`);
+  if ([...text].length > maxChars) throw new AgentError('bad_prompt', `Keep the task under ${maxChars} characters.`);
   if (text.includes('\0')) throw new AgentError('bad_prompt', 'The task contains an invalid character.');
   return text;
 }
@@ -326,6 +327,7 @@ function publicCatalog(catalog = CATALOG) {
 
 function createAgents({ store, catalog = CATALOG, env = process.env, platform = process.platform } = {}) {
   const runs = new Map();
+  const councils = new Map();
   let detected = {};
   let detectedAt = 0;
   let detecting = false;
@@ -458,7 +460,7 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
     return { checking: detecting, agents: { ...detected } };
   }
 
-  function planAction(agentId, workspaceId, modeId, prompt) {
+  function planAction(agentId, workspaceId, modeId, prompt, maxChars = MAX_PROMPT_CHARS) {
     const agent = typeof agentId === 'string' ? agentById(catalog, agentId) : null;
     if (!agent) throw new AgentError('unknown_agent', 'That coding agent is not supported.');
     if (!executable(agent)) throw new AgentError('not_installed', `${agent.label} is not installed on this computer (no '${agent.command}' on your PATH).`);
@@ -467,7 +469,7 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
     const folder = validateFolder(space.path, { env, platform });
     const mode = agent.modes.find((m) => m.id === modeId);
     if (!mode) throw new AgentError('bad_mode', `${agent.label} does not offer that mode.`);
-    const text = cleanPrompt(prompt);
+    const text = cleanPrompt(prompt, maxChars);
     buildCommand(agent, mode, folder, text, 'PROMPTFILE'); // fail now, not after approval
     return {
       kind: 'agent_run', target: `${agent.id}/${space.id}`, label: `${agent.label}: ${mode.label}`,
@@ -475,6 +477,7 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
       surface: 'code', agent: agent.id, agent_label: agent.label, workspace: space.id, workspace_path: folder,
       mode: mode.id, mode_label: mode.label, risk: mode.risk, prompt: text, run_id: crypto.randomBytes(9).toString('base64url'),
       auto_ok: false,
+      ...(maxChars !== MAX_PROMPT_CHARS ? { max_chars: maxChars } : {}),
     };
   }
 
@@ -505,6 +508,107 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
       action.handoff_from = kind !== 'compare' && index > 0 ? index - 1 : null;
       return action;
     });
+  }
+
+  // -- councils: several agents think together, read-only
+
+  /** The single action for a debate or judge panel. Every member runs in its read-only mode only. */
+  function planCouncil(kind, workspaceId, prompt, agentIds) {
+    if (!councilModule.KINDS.includes(kind)) throw new AgentError('bad_request', 'A council is a debate or a judge panel.');
+    const { MIN_AGENTS, MAX_AGENTS } = councilModule.LIMITS;
+    if (!Array.isArray(agentIds) || !agentIds.every((a) => typeof a === 'string') || new Set(agentIds).size !== agentIds.length
+      || agentIds.length < MIN_AGENTS || agentIds.length > MAX_AGENTS) {
+      throw new AgentError('bad_request', `A council needs ${MIN_AGENTS} to ${MAX_AGENTS} different agents.`);
+    }
+    const space = typeof workspaceId === 'string' ? workspace(workspaceId) : null;
+    if (!space) throw new AgentError('no_workspace', 'Choose one of your project folders first (add one on the Code page).');
+    const folder = validateFolder(space.path, { env, platform });
+    const text = cleanPrompt(prompt, 2000);
+    const members = agentIds.map((agentId) => {
+      const agent = agentById(catalog, agentId);
+      if (!agent) throw new AgentError('unknown_agent', 'That coding agent is not supported.');
+      if (!executable(agent)) throw new AgentError('not_installed', `${agent.label} is not installed on this computer (no '${agent.command}' on your PATH).`);
+      return { agent: agentId, label: agent.label, mode: readMode(agent).id };
+    });
+    const title = kind === 'debate' ? 'Debate panel' : 'Judge panel';
+    return {
+      kind: 'council_run', target: `council/${kind}/${space.id}`, label: `${title}: ${members.map((m) => m.label).join(', ')}`,
+      detail: `in ${space.label} · ${text.replace(/\n/g, ' ').slice(0, 90)}${text.length > 90 ? '…' : ''}`,
+      surface: 'code', agent: 'council', agent_label: title, workspace: space.id, workspace_path: folder,
+      mode: 'plan', mode_label: 'Read-only', risk: 'read', prompt: text, run_id: crypto.randomBytes(9).toString('base64url'),
+      auto_ok: false, council_kind: kind, members, role: kind,
+    };
+  }
+
+  /** Run an approved council action to completion. Resolves to a receipt. */
+  async function runCouncil(action, ask = null) {
+    const kind = action.council_kind;
+    const members = action.members;
+    const space = typeof action.workspace === 'string' ? workspace(action.workspace) : null;
+    const runId = action.run_id;
+    const ids = Array.isArray(members) && members.every((m) => m && typeof m === 'object') ? members.map((m) => m.agent) : [];
+    const { MIN_AGENTS, MAX_AGENTS } = councilModule.LIMITS;
+    if (!(councilModule.KINDS.includes(kind) && space && typeof runId === 'string' && RUN_ID.test(runId)
+      && ids.length >= MIN_AGENTS && ids.length <= MAX_AGENTS && ids.every((a) => agentById(catalog, a)))) {
+      return { status: 'denied', detail: 'That council is no longer valid.' };
+    }
+    let folder;
+    let problem;
+    try {
+      folder = validateFolder(space.path, { env, platform });
+      problem = cleanPrompt(action.prompt, 2000);
+    } catch (error) {
+      if (error instanceof AgentError) return { status: 'denied', detail: error.userMessage };
+      throw error;
+    }
+    if (folder !== action.workspace_path) return { status: 'denied', detail: 'The project folder changed since the plan was made. Plan it again.' };
+    if ([...runs.values()].some((r) => r.status === 'running' && r.agent === 'council')) {
+      return { status: 'unavailable', detail: 'Another council is already running. Wait for it to finish.' };
+    }
+    const current = new Run(runId, 'council', folder, 'plan');
+    runs.set(runId, current);
+    const state = { cancelled: false, inner: new Set() };
+    councils.set(runId, state);
+    const labels = Object.fromEntries(ids.map((a) => [a, agentById(catalog, a).label]));
+
+    const defaultAsk = async (agentId, prompt) => {
+      const agent = agentById(catalog, agentId);
+      const inner = planAction(agentId, space.id, readMode(agent).id, prompt, councilModule.LIMITS.COUNCIL_PROMPT_CHARS);
+      state.inner.add(inner.run_id);
+      try {
+        const receipt = await run(inner, councilModule.LIMITS.CALL_TIMEOUT_S * 1000);
+        return receipt.status === 'returned' ? receipt.output : null;
+      } finally {
+        state.inner.delete(inner.run_id);
+      }
+    };
+    const panel = new councilModule.Council({
+      ask: ask || defaultAsk, labels, log: (line) => current.add(`${line}\n`), cancelled: () => state.cancelled, seed: runId,
+    });
+    try {
+      const report = kind === 'debate'
+        ? councilModule.reportDebate(await panel.debate(problem, ids), labels)
+        : councilModule.reportJudge(await panel.judge(problem, councilModule.auditFolder(folder), ids), labels);
+      finish(current, 'done');
+      const took = current.finished ? Math.floor((current.finished - current.started) / 1000) : 0;
+      return {
+        status: 'returned',
+        detail: `The council finished in ${took} s. These are the agents' opinions; FlowMesh did not check them. Nothing in the folder was changed.`,
+        output: report,
+      };
+    } catch (error) {
+      if (error instanceof councilModule.Cancelled) {
+        finish(current, 'cancelled');
+        return { status: 'failed', detail: 'The council was stopped before it finished.', output: current.text(councilModule.LIMITS.COUNCIL_PROMPT_CHARS) };
+      }
+      if (error instanceof Error && error.constructor === Error) {
+        finish(current, 'failed', error.message);
+        return { status: 'failed', detail: `The council could not finish: ${error.message}.`, output: current.text(councilModule.LIMITS.COUNCIL_PROMPT_CHARS) };
+      }
+      throw error;
+    } finally {
+      councils.delete(runId);
+    }
   }
 
   function finish(run, status, note = '') {
@@ -550,7 +654,8 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
     let prompt;
     try {
       folder = validateFolder(space.path, { env, platform });
-      prompt = cleanPrompt(action.prompt);
+      const limit = Number.isInteger(action.max_chars) && action.max_chars >= MAX_PROMPT_CHARS && action.max_chars <= 20000 ? action.max_chars : MAX_PROMPT_CHARS;
+      prompt = cleanPrompt(action.prompt, limit);
     } catch (error) {
       if (error instanceof AgentError) return { status: 'denied', detail: error.userMessage };
       throw error;
@@ -558,7 +663,7 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
     if (folder !== action.workspace_path) return { status: 'denied', detail: 'The project folder changed since the plan was made. Plan it again.' };
     const exe = executable(agent);
     if (!exe) return { status: 'unavailable', detail: `${agent.label} is not installed.` };
-    if ([...runs.values()].filter((r) => r.status === 'running').length >= MAX_CONCURRENT_RUNS) {
+    if ([...runs.values()].filter((r) => r.status === 'running' && r.agent !== 'council').length >= MAX_CONCURRENT_RUNS) {
       return { status: 'unavailable', detail: 'Too many coding runs are already going. Wait for one to finish.' };
     }
     const current = new Run(runId, agent.id, folder, mode.id);
@@ -647,6 +752,13 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
 
   function cancel(id) {
     const found = typeof id === 'string' && RUN_ID.test(id) ? runs.get(id) : null;
+    const council = found ? councils.get(id) : null;
+    if (council && found.status === 'running') {
+      found.stopReason = 'cancelled';
+      council.cancelled = true;
+      for (const inner of [...council.inner]) cancel(inner);
+      return true;
+    }
     if (!found || found.status !== 'running' || !found.child) return false;
     found.stopReason = 'cancelled';
     killTree(found.child, platform);
@@ -680,7 +792,7 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
   }
 
   return {
-    catalog, config, upsertWorkspace, removeWorkspace, setDefaults, workspace, detect, planAction, planRelay, run, runView, cancel,
+    catalog, config, upsertWorkspace, removeWorkspace, setDefaults, workspace, detect, planAction, planRelay, planCouncil, runCouncil, run, runView, cancel,
     killAllNow, closeAll: async () => killAllNow(), loginCommand, openLogin,
   };
 }

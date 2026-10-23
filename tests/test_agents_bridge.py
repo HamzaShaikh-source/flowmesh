@@ -202,6 +202,39 @@ class RelayTest(AgentsBridgeCase):
         self.relay("review", ["mock", "mock2"], expected=400, path="C:/Windows")
 
 
+class CouncilBridgeTest(AgentsBridgeCase):
+    def council(self, kind, agents, prompt="decide how to do it", expected=200, **extra):
+        space = self.add_folder()
+        status, _, raw = self.call("POST", "/api/agents/council", {"kind": kind, "workspace": space["id"], "prompt": prompt, "agents": agents, **extra})
+        self.assertEqual(status, expected, raw)
+        return self.json_of(raw)
+
+    def test_a_council_plan_is_read_only_and_never_auto_run(self):
+        plan = self.council("debate", ["mock", "mock2"])
+        step = plan["actions"][0]
+        self.assertEqual((plan["risk"], plan["auto_run"], plan["needs_confirm"], step["kind"]), ("read", False, False, "council_run"))
+        self.assertIn("Mock Agent:", step["command"])
+        self.assertIn("Mock Two:", step["command"])
+        self.assertIn("read-only", plan["description"])
+
+    def test_approving_runs_the_debate_and_reports_opinions(self):
+        plan = self.council("debate", ["mock", "mock2"])
+        status, _, raw = self.call("POST", "/api/execute", {"plan_id": plan["id"]})
+        self.assertEqual(status, 200, raw)
+        results = self.json_of(raw)["results"]
+        self.assertEqual(results[0]["status"], "returned")
+        self.assertIn("WINNER", results[0]["output"])
+        self.assertEqual(results[-1]["status"], "verified", "the run record is hashed")
+        view = self.json_of(self.call("GET", f"/api/agents/runs/{plan['actions'][0]['run_id']}")[2])
+        self.assertEqual(view["status"], "done")
+
+    def test_bad_councils_and_extra_fields_are_refused(self):
+        self.council("debate", ["mock"], expected=422)
+        self.council("debate", ["mock", "mockarg"], expected=422)
+        self.council("vote", ["mock", "mock2"], expected=422)
+        self.council("debate", ["mock", "mock2"], expected=400, path="C:/Windows")
+
+
 class PhraseAndSigninTest(AgentsBridgeCase):
     def test_a_spoken_agent_sentence_becomes_a_plan_with_saved_defaults(self):
         space = self.add_folder()
