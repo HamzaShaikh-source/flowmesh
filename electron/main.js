@@ -66,6 +66,15 @@ function writeLaunchUrl(url) {
   }
 }
 
+function allowMicrophoneOnlyForOurOwnPage(win, loopbackOrigin) {
+  // Deny every permission by default; allow audio capture, and only for this app's own page.
+  win.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const own = String(details.requestingUrl || '').startsWith(loopbackOrigin);
+    const audioOnly = !details.mediaTypes || details.mediaTypes.every((type) => type === 'audio');
+    callback(permission === 'media' && own && audioOnly);
+  });
+}
+
 function createWindow(url) {
   const window = new BrowserWindow({
     width: 1280,
@@ -73,7 +82,7 @@ function createWindow(url) {
     minWidth: 980,
     minHeight: 700,
     show: false,
-    backgroundColor: '#0b0d10',
+    backgroundColor: '#ffffeb',
     title: 'FlowMesh',
     autoHideMenuBar: process.platform !== 'darwin',
     icon: path.join(__dirname, 'assets', 'icon.png'),
@@ -126,6 +135,8 @@ function createWindow(url) {
   window.on('closed', () => {
     windowRef = null;
   });
+
+  allowMicrophoneOnlyForOurOwnPage(window, new URL(url).origin);
 
   return window;
 }

@@ -13,6 +13,7 @@ import html
 import hmac
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -25,7 +26,7 @@ import webbrowser
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from flowmesh_config import VERSION, public_settings, save, secret, settings
 from planner import FORBIDDEN, WORKFLOWS, actions_for, command_is_usable, local_route, other_intents
@@ -174,6 +175,47 @@ def artifact_dir() -> Path:
     directory = Path(override) if override else Path.home() / "FlowMesh" / "runs"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+RUN_NAME = re.compile(r"flowmesh-[A-Za-z0-9_\-]{1,100}\.md")
+MAX_RECORD_BYTES = 300_000
+MAX_RUNS_LISTED = 100
+
+
+def list_runs() -> list[dict]:
+    """Run records FlowMesh itself wrote, newest first. Names only ever come from this listing."""
+    entries = []
+    for path in artifact_dir().glob("flowmesh-*.md"):
+        if not RUN_NAME.fullmatch(path.name) or not path.is_file():
+            continue
+        stat = path.stat()
+        title = ""
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                first = handle.readline(200).strip()
+            title = first.removeprefix("# FlowMesh run — ").removeprefix("# ").strip()[:80]
+        except OSError:
+            pass
+        entries.append({"name": path.name, "bytes": stat.st_size, "title": title,
+                        "modified": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(timespec="seconds")})
+    entries.sort(key=lambda e: e["modified"], reverse=True)
+    return entries[:MAX_RUNS_LISTED]
+
+
+def read_run(name: str) -> dict | None:
+    """One record by name. The name must match the generated pattern and resolve inside the
+    artifact directory, so no path, traversal or other file can ever be read through this."""
+    if not isinstance(name, str) or not RUN_NAME.fullmatch(name):
+        return None
+    directory = artifact_dir().resolve()
+    path = (directory / name).resolve()
+    if path.parent != directory or not path.is_file():
+        return None
+    try:
+        data = path.read_bytes()[:MAX_RECORD_BYTES]
+    except OSError:
+        return None
+    return {"name": name, "text": data.decode("utf-8", "replace"), "truncated": path.stat().st_size > MAX_RECORD_BYTES}
 
 
 def capabilities() -> dict[str, str]:
@@ -887,6 +929,13 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/wispr/latest":
             self.send_json(wispr_latest())
+            return
+        if self.path == "/api/runs":
+            self.send_json({"runs": list_runs()})
+            return
+        if self.path.startswith("/api/runs/"):
+            record = read_run(unquote(self.path[len("/api/runs/"):]))
+            self.send_json(record if record is not None else {"error": "No such record"}, 200 if record is not None else 404)
             return
         if self.path == "/api/mcp/servers":
             self.send_json({"servers": MANAGER.list_servers(), "limit": 20})

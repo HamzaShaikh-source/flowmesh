@@ -69,6 +69,17 @@ Full detail in [MCP.md](MCP.md). The important changes to the threat model:
 - **The model planner is not a trust boundary**: its JSON is validated like hostile input, and
   sentences with forbidden vocabulary never reach it.
 
+## Voice (added in 1.5)
+
+Full detail in [VOICE.md](VOICE.md). A spoken sentence is untrusted input: only a *whole utterance*
+matching a short fixed grammar acts as a command, approval by voice is off by default and can never
+approve a plan containing a `danger` call, and everything else becomes a normal plan that a person
+approves. Live pickup reads Wispr's local history read-only through the existing connector. The
+hosted page allows the microphone for itself only; the Electron app denies every permission except
+audio capture for its own loopback page. The sign-in callback (`/oauth/wispr/callback`) is the one
+route that needs no session token; it is guarded by an unguessable single-use `state`, answers under
+a locked-down CSP, and its one-time code is redacted from the request log.
+
 ## Receipt integrity
 
 `returned` (an MCP tool answered) is likewise not `verified`, and a tool timeout is `unknown`. `sent` means "handed to the OS or an HTTP client". It is never promoted to `verified` without an observation: a spawned process, a scheduled timer, a file hash, or a Home Assistant state read-back that equals the requested brightness. This is enforced in the adapters, and `tests/test_actions.py` asserts that an unconfigured integration can never produce a success-looking status.

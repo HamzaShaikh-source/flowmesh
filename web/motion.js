@@ -1,16 +1,14 @@
-/* FlowMesh motion: the hero's wired-plan loop, scroll reveals, panel spotlight.
+/* FlowMesh motion: the Home hero's wired-plan loop and a gentle stagger on stat cards.
 
-   Everything here is decoration over content that is already complete without it.
-   Under prefers-reduced-motion nothing animates: the hero shows its final frame, reveals
-   are immediate, and no timer or rAF loop is started. Loops also pause whenever the
-   element is off screen or the tab is hidden. */
+   Everything here is decoration over content that is already complete without it. Under
+   prefers-reduced-motion nothing animates: the hero shows its final frame, and no timer or
+   observer is started. The loop also pauses whenever the hero is off screen, on another page,
+   or the tab is hidden. */
 (function () {
   'use strict';
 
   var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var $ = function (id) { return document.getElementById(id); };
-
-  /* ---------------------------------------------------------------- hero loop */
 
   var SENTENCE = 'Message Rohan the revised quote, then open a pull request for the pricing fix.';
   var PHASES = [
@@ -83,7 +81,10 @@
 
     if ('IntersectionObserver' in window) {
       new IntersectionObserver(function (entries) {
-        entries.forEach(function (entry) { if (entry.isIntersecting && !document.hidden) start(); else stop(); });
+        entries.forEach(function (entry) {
+          // Off screen also covers "on another page": a hidden page has no box.
+          if (entry.isIntersecting && !document.hidden) start(); else stop();
+        });
       }, { threshold: 0.25 }).observe(root);
     } else {
       start();
@@ -91,55 +92,23 @@
     document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); });
   }
 
-  /* ---------------------------------------------------------------- scroll reveal */
-
-  function reveal() {
-    var nodes = Array.prototype.slice.call(document.querySelectorAll('[data-reveal], .capabilities, .build, .console .section-head, .tools .section-head'));
-    if (reduced || !('IntersectionObserver' in window)) {
-      nodes.forEach(function (n) { n.classList.add('in'); });
-      return;
-    }
-    nodes.forEach(function (n) { n.classList.add('will-reveal'); });
+  function stagger() {
+    if (reduced || !('IntersectionObserver' in window)) return;
+    var cards = Array.prototype.slice.call(document.querySelectorAll('.stat, .build-grid article, .trust-row > div'));
+    cards.forEach(function (card, index) { card.classList.add('will-reveal'); card.style.transitionDelay = (index % 4) * 70 + 'ms'; });
     var observer = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         if (!entry.isIntersecting) return;
         entry.target.classList.add('in');
         observer.unobserve(entry.target);
       });
-    }, { threshold: 0.08, rootMargin: '0px 0px -6% 0px' });
-    nodes.forEach(function (n) { observer.observe(n); });
-  }
-
-  /* ---------------------------------------------------------------- spotlight + topbar */
-
-  function spotlight() {
-    if (reduced) return;
-    document.addEventListener('pointermove', function (event) {
-      var panel = event.target.closest && event.target.closest('.panel, .specimen, .server-card, .preset');
-      if (!panel) return;
-      var box = panel.getBoundingClientRect();
-      panel.style.setProperty('--mx', (event.clientX - box.left) + 'px');
-      panel.style.setProperty('--my', (event.clientY - box.top) + 'px');
-    }, { passive: true });
-  }
-
-  function topbar() {
-    var bar = document.querySelector('.topbar');
-    if (!bar) return;
-    var last = false;
-    function update() {
-      var scrolled = window.scrollY > 8;
-      if (scrolled !== last) { last = scrolled; bar.classList.toggle('scrolled', scrolled); }
-    }
-    window.addEventListener('scroll', update, { passive: true });
-    update();
+    }, { threshold: 0.1 });
+    cards.forEach(function (card) { observer.observe(card); });
   }
 
   function init() {
     hero();
-    reveal();
-    spotlight();
-    topbar();
+    stagger();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

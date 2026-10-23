@@ -171,6 +171,12 @@
 
   /* ---------------------------------------------------------------- server list */
 
+  function announce() {
+    document.dispatchEvent(new CustomEvent('flowmesh:tools', { detail: {
+      tools: T.tools.length, servers: T.servers.filter(function (server) { return server.enabled; }).length, demo: T.demo,
+    } }));
+  }
+
   function loadAll() {
     if (T.demo) {
       T.servers = [DEMO_SERVER];
@@ -178,6 +184,7 @@
       T.errors = {};
       renderServers();
       renderTools();
+      announce();
       return;
     }
     setLoading(true);
@@ -192,6 +199,7 @@
       setLoading(false);
       renderServers();
       renderTools();
+      announce();
     }).catch(function (err) { setLoading(false); UI.toast(UI.humanError(err.message)); });
   }
 
@@ -616,21 +624,24 @@
       items.push({ label: 'Approve the plan on screen', hint: 'Ctrl Shift Enter', run: UI.approvePlan });
       items.push({ label: 'Cancel the plan on screen', hint: 'Esc', run: UI.clearPlan });
     }
-    items.push({ label: 'Go to the console', hint: 'section', run: function () { jump('console'); } });
-    items.push({ label: 'Go to tools', hint: 'section', run: function () { jump('tools'); } });
-    items.push({ label: 'Go to what runs where', hint: 'section', run: function () { jump('capabilities'); } });
+    var pages = (window.FlowMeshRouter && window.FlowMeshRouter.routes) || {};
+    Object.keys(pages).forEach(function (route) {
+      items.push({ label: 'Go to ' + pages[route], hint: 'page', run: function () { window.FlowMeshRouter.go(route); } });
+    });
     if (UI.mode() === 'desktop') {
       items.push({ label: 'Add an MCP server', hint: 'tools', run: openServerDialog });
       items.push({ label: 'Use my last Wispr dictation', hint: 'desktop', run: UI.pullDictation });
       items.push({ label: 'Connect my Wispr account', hint: 'desktop', run: UI.connectAccount });
-      items.push({ label: 'Open connections and model settings', hint: 'settings', run: function () { jump('settingsSection'); } });
+      items.push({ label: 'Open connections and model settings', hint: 'page', run: function () { window.FlowMeshRouter.go('settings'); } });
     }
     [['Meeting reset', 'meeting'], ['Deep focus', 'focus'], ['Research sprint', 'research'], ['Quick capture', 'capture']].forEach(function (pair) {
       items.push({ label: 'Try the example: ' + pair[0], hint: 'example', run: function () {
+        window.FlowMeshRouter.go('flow');
         var chip = document.querySelector('[data-example="' + pair[1] + '"]');
         if (chip) chip.click();
       } });
     });
+    if (window.FlowMeshVoice) items = items.concat(window.FlowMeshVoice.paletteItems());
     return items;
   }
 
@@ -681,7 +692,9 @@
     document.addEventListener('keydown', function (event) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); togglePalette(); }
     });
-    $('paletteTrigger').addEventListener('click', togglePalette);
+    Array.prototype.forEach.call(document.querySelectorAll('.js-palette'), function (button) {
+      button.addEventListener('click', togglePalette);
+    });
     $('paletteInput').addEventListener('input', function () { paletteIndex = 0; renderPalette(); });
     $('paletteInput').addEventListener('keydown', function (event) {
       if (event.key === 'ArrowDown') { event.preventDefault(); paletteIndex = Math.min(paletteIndex + 1, paletteShown.length - 1); renderPalette(); }

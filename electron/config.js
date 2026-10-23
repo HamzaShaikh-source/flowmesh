@@ -13,7 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const APP_NAME = 'FlowMesh';
-const VERSION = '1.4.1';
+const VERSION = '1.5.0';
 
 const FIELDS = {
   board_url: 'FLOWMESH_BOARD_URL',
