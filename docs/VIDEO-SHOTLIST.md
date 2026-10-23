@@ -15,7 +15,7 @@ Everything marked **[YOU]** can only be recorded by you: your voice, your screen
 | 1:14–1:34 | Approve & run: timer ticking, tab opens, receipts appear; point at `sent` vs `verified` vs `not_configured` | Say the honest line: "Phone and lamp aren't configured here, so they say so instead of pretending." |
 | 1:34–1:44 | Run record: download in browser, and (if you have the Windows build) the `.md` file in `~/FlowMesh/runs/` with its SHA-256 | One line: "Every run leaves a record." |
 | 1:44–1:52 | **Refusal**: type "delete my files" → refused with a reason; then replay/expired plan if you want a second beat | This is the trust argument; do not skip it. |
-| 1:52–2:00 | **[YOU]** Close: test count on screen (`57 tests, OK` + `18/18 node`), live link, repo link | "Stdlib only, 57 tests, and the browser edition is the same planner. Link's below." |
+| 1:52–2:00 | **[YOU]** Close: the app's **Proof** page on screen (today's test counts, green CI, release checksums, and the "Still being measured" list), live link, repo link | "The numbers on this page come from real runs, and what I have not measured is listed too. Link's below." |
 
 ## Recording notes
 
@@ -50,5 +50,5 @@ Everything marked **[YOU]** can only be recorded by you: your voice, your screen
   say "zoom in", "scroll to the receipts section" and "what can I say" (the page pilot); on the desktop app say
   "ask Codex to ..." and show a read-only council or a team-up plan.
 - **Numbers to put on the closing card** (check them on the day): Python 334 tests, Node 177 tests, release 1.7.1
-  or later. The `57 tests` and `18 node` in the table above are from an old build.
+  or later. Read the counts off the Proof page on the day (`python scripts/build_proof.py` refreshes it).
 - Do not claim Wispr audio in the recorded clip, and do not reuse it as proof of Wispr use.

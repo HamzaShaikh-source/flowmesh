@@ -27,6 +27,8 @@ test('the guide is reachable by voice', () => {
     assert.deepEqual(grammar.parseCommand(said), { type: 'go', page: 'guide' }, said);
   }
   assert.equal(grammar.parseCommand('open the guide to the building and send it to Rohan'), null);
+  assert.deepEqual(grammar.parseCommand('open the proof page'), { type: 'go', page: 'about' });
+  assert.deepEqual(grammar.parseCommand('take me to proof'), { type: 'go', page: 'about' });
 });
 
 test('every phrase the guide offers to try is understood by the grammar or the pilot', () => {

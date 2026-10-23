@@ -12,7 +12,7 @@ const { test } = require('node:test');
 const WEB = path.join(__dirname, '..', '..', 'web');
 const read = (name) => fs.readFileSync(path.join(WEB, name), 'utf8');
 const html = read('index.html');
-const SCRIPTS = ['core.js', 'ui.js', 'tools.js', 'code.js', 'pages.js', 'voice-grammar.js', 'voice.js', 'wake.js', 'pilot-core.js', 'guide.js', 'pilot.js', 'motion.js'];
+const SCRIPTS = ['core.js', 'ui.js', 'tools.js', 'code.js', 'pages.js', 'voice-grammar.js', 'voice.js', 'wake.js', 'pilot-core.js', 'guide.js', 'proof.js', 'pilot.js', 'motion.js'];
 
 const idsInHtml = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
 

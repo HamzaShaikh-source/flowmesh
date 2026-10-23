@@ -13,7 +13,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var el = UI.el;
 
-  var ROUTES = { home: 'Home', flow: 'Flow', tools: 'Tools', code: 'Code', guide: 'Guide', wispr: 'Wispr', history: 'History', settings: 'Settings', about: 'How it works' };
+  var ROUTES = { home: 'Home', flow: 'Flow', tools: 'Tools', code: 'Code', guide: 'Guide', wispr: 'Wispr', history: 'History', settings: 'Settings', about: 'Proof' };
   var current = '';
   var pendingOpen = null;
 

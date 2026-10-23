@@ -44,7 +44,7 @@ and forest accents), with a voice dock on every page and a command palette on `C
 | **Wispr** | history reader, optional Wispr account connection, Scratchpad notes, dictionary |
 | **History** | every run record, with its SHA-256 |
 | **Settings** | Home Assistant, a Jev key, the language model used for planning |
-| **About** | how it works and what it will not do |
+| **Proof** | "Measured, never estimated": test counts, CI, the eval, release checksums, all generated from real runs by `scripts/build_proof.py`, a list of what is **not** yet measured, and what runs where |
 
 ## Coding agents: Claude Code, Codex, Antigravity, OpenCode, Gemini CLI, Aider
 
