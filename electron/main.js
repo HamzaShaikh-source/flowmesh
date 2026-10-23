@@ -267,6 +267,8 @@ async function start() {
   runtime = createRuntime({
     store,
     openExternal: (url) => shell.openExternal(url),
+    // The page pilot's "take a screenshot": the app's own window, as a PNG, saved locally by the runtime.
+    capturePage: async () => (windowRef && !windowRef.isDestroyed() ? (await windowRef.webContents.capturePage()).toPNG() : null),
     // A native, out-of-band confirmation. The web layer (and any process holding the
     // session token) can send `acknowledged: true`, but cannot click this dialog.
     confirmProgram: async (server) => {

@@ -647,6 +647,8 @@
     return items;
   }
 
+  window.FlowMeshPalette = { items: paletteItems };
+
   function jump(id) {
     var node = $(id);
     if (node) node.scrollIntoView({ behavior: UI.reduced() ? 'auto' : 'smooth', block: 'start' });

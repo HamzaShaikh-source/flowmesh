@@ -40,7 +40,7 @@
       var ctx = new Context();
       var gain = ctx.createGain();
       gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.12 * (window.FlowMeshPilot ? window.FlowMeshPilot.volume() : 1)), ctx.currentTime + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
       gain.connect(ctx.destination);
       [660, 880].forEach(function (freq, i) {

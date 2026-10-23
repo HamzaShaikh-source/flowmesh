@@ -124,6 +124,13 @@ validated). A judge panel reads a project folder, so the audit skips vendor fold
 judge the text of a file that appears to hold a secret, and tells judges to treat text addressed to them
 as manipulation. Councils change nothing and are never `verified`.
 
+## The page pilot
+
+The pilot (see [VOICE.md](VOICE.md)) is rule-based and acts only on whole sentences. Its desktop abilities are
+fixed: three Windows media keys pressed 1 to 25 times (the action and count are validated; nothing can name a
+key), and a PNG of the app window saved locally with a hash. Palette matching is strict and refuses approval,
+confirmation, deletion and disconnection labels. `FLOWMESH_PILOT=off` disables both desktop abilities.
+
 ## Messaging templates
 
 The Discord, Slack, Notion and Agent Switch entries on the Tools page are *templates* that fill in a
