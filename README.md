@@ -31,7 +31,7 @@ confirmation. Each approved plan runs once and expires in five minutes.
 
 ## The pages
 
-Eight pages in Wispr Flow's own visual language (cream paper, ink type, EB Garamond over Figtree, lilac
+Nine pages in Wispr Flow's own visual language (cream paper, ink type, EB Garamond over Figtree, lilac
 and forest accents), with a voice dock on every page and a command palette on `Ctrl K`.
 
 | Page | What it is |
@@ -39,6 +39,7 @@ and forest accents), with a voice dock on every page and a command palette on `C
 | **Home** | stats, recent runs, how to start |
 | **Flow** | say it → review the plan → receipts; live output while a coding agent works |
 | **Tools** | connect MCP servers (templates for files, git, GitHub, browser, Discord, Slack, Notion, Agent Switch), browse their tools, build and chain calls |
+| **Guide** | how to talk to FlowMesh: three steps, every phrase it understands (click one to try it), the page pilot, desktop features and a what-if list |
 | **Code** | your coding agents, their sign-in state, your project folders, and a task composer |
 | **Wispr** | history reader, optional Wispr account connection, Scratchpad notes, dictionary |
 | **History** | every run record, with its SHA-256 |
@@ -210,7 +211,7 @@ The browser UI and every other local process are treated as untrusted. Full deta
 
 ```bash
 python -m unittest discover -s tests -v   # 334 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
-npm test                                  # 177 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
+npm test                                  # 181 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
 ```
 
 [docs/VERIFICATION.md](docs/VERIFICATION.md) is the dated log with exact commands, including what is *not*

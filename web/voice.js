@@ -506,6 +506,7 @@
     bindOptions();
     bindCapture();
     $('micBtn').addEventListener('click', startMic);
+    $('helpBtn').addEventListener('click', openHelp);
     $('liveUse').addEventListener('click', function () { window.FlowMeshRouter.go('flow'); UI.pullDictation(); });
     document.addEventListener('flowmesh:mode', function () { paintOptions(); paintCapture(); if (UI.mode() === 'desktop') startPolling(); });
     document.addEventListener('flowmesh:plan', function (event) {
@@ -531,7 +532,7 @@
     if (UI.mode() === 'desktop') startPolling();
   }
 
-  window.FlowMeshVoice = { announce: announce, repaint: paintDock, parseCommand: parseCommand, paletteItems: paletteItems, speak: speak, options: function () { return Object.assign({}, opt); } };
+  window.FlowMeshVoice = { openHelp: openHelp, tryPhrase: function (text) { handleText(text, 'catch'); }, announce: announce, repaint: paintDock, parseCommand: parseCommand, paletteItems: paletteItems, speak: speak, options: function () { return Object.assign({}, opt); } };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

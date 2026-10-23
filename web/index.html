@@ -18,6 +18,7 @@
 <script src="pages.js" defer></script>
 <script src="voice-grammar.js" defer></script>
 <script src="pilot-core.js" defer></script>
+<script src="guide.js" defer></script>
 <script src="pilot.js" defer></script>
 <script src="voice.js" defer></script>
 <script src="wake.js" defer></script>
@@ -35,6 +36,7 @@
   <symbol id="i-wispr" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
   <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></symbol>
+  <symbol id="i-guide" viewBox="0 0 24 24"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 8h6M9 12h4"/></symbol>
   <symbol id="i-about" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
   <symbol id="i-out" viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></symbol>
@@ -63,6 +65,7 @@
       <a href="#/flow" data-route="flow"><svg class="ico"><use href="#i-flow"/></svg><span>Flow</span></a>
       <a href="#/tools" data-route="tools"><svg class="ico"><use href="#i-tools"/></svg><span>Tools</span><b class="count" id="navToolCount" hidden></b></a>
       <a href="#/code" data-route="code"><svg class="ico"><use href="#i-code"/></svg><span>Code</span></a>
+      <a href="#/guide" data-route="guide"><svg class="ico"><use href="#i-guide"/></svg><span>Guide</span></a>
       <a href="#/wispr" data-route="wispr"><svg class="ico"><use href="#i-wispr"/></svg><span>Wispr</span></a>
       <a href="#/history" data-route="history"><svg class="ico"><use href="#i-history"/></svg><span>History</span></a>
       <a href="#/settings" data-route="settings"><svg class="ico"><use href="#i-settings"/></svg><span>Settings</span></a>
@@ -153,6 +156,7 @@
           <div class="hero-actions flush">
             <a class="button primary" href="#/flow">Open Flow <svg class="ico"><use href="#i-arrow"/></svg></a>
             <a class="button" href="#/tools">Connect tools</a>
+            <a class="button" href="#/guide">Voice guide</a>
           </div>
         </div>
         <div class="card">
@@ -567,6 +571,90 @@
       </section>
     </section>
 
+    <!-- ============================================================ GUIDE -->
+    <section class="page" data-page="guide" aria-labelledby="guide-title" hidden>
+      <header class="page-head">
+        <p class="eyebrow">Guide &middot; talking to FlowMesh</p>
+        <h1 id="guide-title">Talk to the page. <em>Approve what matters.</em></h1>
+        <p class="lede">Wispr Flow types what you say. FlowMesh acts at once on short commands, and turns every other sentence into a plan you read and approve. Nothing runs without your yes.</p>
+        <div class="hero-actions flush">
+          <button class="button primary" id="guideHelp" type="button">Open the quick list <svg class="ico"><use href="#i-arrow"/></svg></button>
+          <a class="button" href="#/flow">Try it on the Flow page</a>
+        </div>
+      </header>
+
+      <h2 class="group-title first">Three steps</h2>
+      <ol class="guide-steps">
+        <li>
+          <p class="mono quiet">01 &middot; Talk</p>
+          <h3>Hold your Wispr Flow key</h3>
+          <p>On this page the words land in the field in the dock at the bottom (it says <em>Hold your Wispr key and talk</em>). Release, and about a second later FlowMesh acts. On the desktop app it also picks up new dictations from Wispr's history by itself, and you can say <em>&ldquo;Hey FlowMesh&rdquo;</em> to start (turn that on in the Wispr page). No Wispr? Type into the same field, or use the microphone button.</p>
+        </li>
+        <li>
+          <p class="mono quiet">02 &middot; FlowMesh decides</p>
+          <h3>A command, or a plan</h3>
+          <p>A <strong>whole sentence</strong> that matches a short command acts straight away: <em>&ldquo;go to tools&rdquo;</em>, <em>&ldquo;zoom in&rdquo;</em>, <em>&ldquo;take a screenshot&rdquo;</em>. Anything else is read as a request and becomes a plan: <em>&ldquo;start a 25 minute research sprint and open the board&rdquo;</em>. A command word inside a longer sentence never fires by accident.</p>
+        </li>
+        <li>
+          <p class="mono quiet">03 &middot; You approve</p>
+          <h3>Read it, then say yes</h3>
+          <p>The plan lists every effect with its exact values. Click <strong>Approve &amp; run</strong>. Saying &ldquo;approve&rdquo; works only if you switched on <em>approve by voice</em> (Wispr page), and never for a plan that can delete or destroy things. Each plan runs once and expires in five minutes.</p>
+        </li>
+      </ol>
+
+      <h2 class="group-title">Everything you can say</h2>
+      <p class="lede lede-gap">Click any phrase to try it. This list is generated from the same code that understands your voice, so it cannot go out of date.</p>
+      <div class="guide-cmds" id="guideCommands"></div>
+
+      <h2 class="group-title">The page pilot</h2>
+      <div class="build-grid">
+        <article>
+          <p class="mono quiet">Zoom &middot; move &middot; capture</p>
+          <h3>A small agent for the page itself</h3>
+          <p>Say <em>&ldquo;zoom to 150 percent&rdquo;</em>, <em>&ldquo;scroll to the receipts section&rdquo;</em>, <em>&ldquo;go back&rdquo;</em>, <em>&ldquo;full screen&rdquo;</em>, or the name of anything in the command palette (<kbd>Ctrl</kbd> <kbd>K</kbd>). It is rule-based, runs in your browser and uses no model.</p>
+        </article>
+        <article>
+          <p class="mono quiet">Volume &middot; screenshots</p>
+          <h3>Two meanings, stated every time</h3>
+          <p><strong>Volume:</strong> on the Windows desktop app it moves your computer's real volume; everywhere else it moves FlowMesh's own voice volume (read-aloud and the chime), because a web page cannot touch the system volume. <strong>Screenshots:</strong> the desktop app saves a PNG of its window in your FlowMesh folder; in a browser it uses tab capture, which asks which tab to share.</p>
+        </article>
+        <article>
+          <p class="mono quiet">What it will not do</p>
+          <h3>No approvals, no deletions</h3>
+          <p>The pilot cannot approve, confirm, delete or disconnect anything, even if the palette lists it. Every content word you say must match exactly one action, so &ldquo;add a note to the board&rdquo; never triggers &ldquo;Add an MCP server&rdquo;.</p>
+        </article>
+      </div>
+
+      <h2 class="group-title">On the desktop app</h2>
+      <div class="build-grid">
+        <article>
+          <p class="mono quiet">Code</p>
+          <h3>Hand a task to your coding agent</h3>
+          <p>Say <em>&ldquo;ask Codex to fix the failing test&rdquo;</em> (also Claude Code, Antigravity, OpenCode, Gemini CLI, Aider). Add a project folder first, and sign in to each agent in its own terminal: FlowMesh never sees those accounts. <a class="link" href="#/code">Open the Code page</a></p>
+        </article>
+        <article>
+          <p class="mono quiet">Team up &middot; councils</p>
+          <h3>Several agents, one plan</h3>
+          <p>One agent works and another reviews, or agents debate an approach and vote, or a panel scores your project blind. All read-only except the working step, all one approved plan. <a class="link" href="#/code">Team up on the Code page</a></p>
+        </article>
+        <article>
+          <p class="mono quiet">Tools</p>
+          <h3>Messaging and everything else</h3>
+          <p>Connect Discord, Slack, Notion, files, git, GitHub or any MCP server, then plan calls by sentence or from the builder. Each call is shown with its arguments and runs once. <a class="link" href="#/tools">Open Tools</a></p>
+        </article>
+      </div>
+
+      <h2 class="group-title">If something does not happen</h2>
+      <ul class="guide-faq">
+        <li><strong>Nothing lands when I talk.</strong> Click an empty part of the page so the dock field is focused (it glows lilac), or press the Wispr button in the dock if capture is off. Wispr types into whichever field has focus.</li>
+        <li><strong>My command became a plan.</strong> Commands only fire as a <em>whole</em> sentence. &ldquo;Zoom in on the table and send it&rdquo; is a request, on purpose. Say just &ldquo;zoom in&rdquo;.</li>
+        <li><strong>&ldquo;Approve&rdquo; was refused.</strong> Approve by voice is off until you switch it on, and it never works on a plan with a danger step. Click Approve &amp; run.</li>
+        <li><strong>The screenshot asked me something.</strong> That is your browser's tab capture. Choose this tab. The desktop app does not ask.</li>
+        <li><strong>The phone or lamp row says desktop only.</strong> This hosted page cannot reach them. It says so instead of pretending.</li>
+      </ul>
+      <p class="cap-note">Full details: <a class="link" href="https://github.com/HamzaShaikh-source/flowmesh/blob/main/docs/VOICE.md" rel="noopener">docs/VOICE.md</a> and <a class="link" href="https://github.com/HamzaShaikh-source/flowmesh/blob/main/docs/AGENTS.md" rel="noopener">docs/AGENTS.md</a>.</p>
+    </section>
+
     <!-- ============================================================ ABOUT -->
     <section class="page" data-page="about" aria-labelledby="about-title" hidden>
       <header class="page-head">
@@ -630,6 +718,7 @@
   <span class="dock-text"><b id="dockTitle">Voice</b><span id="dockHint">Hold your Wispr key and talk</span></span>
   <input class="dock-catch" id="voiceCatch" type="text" autocomplete="off" spellcheck="false" placeholder="Hold your Wispr key and talk" aria-label="Voice capture: Wispr Flow types here" hidden>
   <button class="dock-btn quiet-btn" id="catchBtn" type="button" aria-pressed="true" aria-label="Capture Wispr Flow dictation on this page" title="Capture Wispr Flow dictation on this page" hidden><svg class="ico sm"><use href="#i-wispr"/></svg></button>
+  <button class="dock-btn quiet-btn" id="helpBtn" type="button" aria-label="What can I say? Open the voice guide" title="What can I say?"><svg class="ico sm"><use href="#i-guide"/></svg></button>
   <button class="dock-btn quiet-btn" id="speakBtn" type="button" aria-pressed="false" aria-label="Read plans and results aloud"><svg class="ico sm"><use href="#i-speaker"/></svg></button>
   <button class="dock-btn" id="micBtn" type="button" aria-pressed="false" aria-label="Start listening with this device's microphone"><svg class="ico"><use href="#i-mic"/></svg></button>
 </div>

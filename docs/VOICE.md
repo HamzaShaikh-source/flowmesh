@@ -160,3 +160,10 @@ focus (Escape and the dock toggle are the ways out).
 - **Not verified:** real tab capture and real full screen (the automation pane blocks both, and the pilot
   reported that gracefully), a real Windows system-volume change, and the Electron window screenshot against a
   real window (the runtime is tested with a fake capture).
+
+## Finding all of this in the app
+
+The **Guide** page (nav, Home, and the book button in the voice dock) explains the three steps, lists every
+phrase and lets you click one to try it. The list is generated from the grammar and the page pilot, and a test
+checks that every phrase it offers really does something, so the guide cannot drift from the code. "What can I
+say" (spoken or typed) opens the same list as a sheet, and "open the guide" goes to the page.
