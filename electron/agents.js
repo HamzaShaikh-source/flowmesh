@@ -57,6 +57,14 @@ const PHRASE = new RegExp(
   'i',
 );
 
+/** The first line of a CLI's `--version` output that looks like a version, or '' (an error is not a version). */
+function versionLine(output) {
+  for (const line of String(output || '').split(/\r?\n/)) {
+    if (/\d+\.\d+/.test(line)) return line.trim().slice(0, 80);
+  }
+  return '';
+}
+
 /** `ask codex to fix the failing test` -> ['codex', 'fix the failing test'], otherwise null. */
 function agentPhrase(command) {
   const match = PHRASE.exec(typeof command === 'string' ? command : '');
@@ -429,7 +437,7 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
     const launcher = agent.launcher_args || [];
     if (agent.version_args && agent.version_args.length) {
       const out = await quick([found, ...launcher, ...agent.version_args], childEnv);
-      info.version = out && out.trim() ? out.trim().split(/\r?\n/)[0].slice(0, 80) : '';
+      info.version = versionLine(out);
     }
     if (agent.status_args && agent.status_args.length) {
       const out = (await quick([found, ...launcher, ...agent.status_args], childEnv)) || '';
@@ -799,5 +807,5 @@ function createAgents({ store, catalog = CATALOG, env = process.env, platform = 
 
 module.exports = {
   createAgents, agentPhrase, agentById, validateFolder, buildCommand, cleanPrompt, agentEnvironment, sanitize, publicCatalog,
-  AgentError, CATALOG, ALIASES, killTree, openInTerminal, withHandoff, readMode,
+  AgentError, CATALOG, ALIASES, killTree, openInTerminal, withHandoff, readMode, versionLine,
 };

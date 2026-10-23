@@ -97,7 +97,7 @@ CATALOG: list[dict] = [
         "method": r"Logged in using ([A-Za-z0-9 ]{1,30})",
         "login_args": ["login"], "login_note": "Opens the ChatGPT sign-in. FlowMesh never sees the account.",
         "modes": [
-            {"id": "plan", "label": "Read-only", "risk": READ, "args": ["-s", "read-only", "-C", "{dir}", "-"],
+            {"id": "plan", "label": "Read-only", "risk": READ, "args": ["-s", "read-only", "--skip-git-repo-check", "-C", "{dir}", "-"],
              "about": "Sandboxed read-only: analyses the project, changes nothing."},
             {"id": "edit", "label": "Edit in the project", "risk": WRITE, "args": ["-s", "workspace-write", "-C", "{dir}", "-"],
              "about": "Sandbox allows writes inside the project folder only."},
@@ -210,6 +210,14 @@ def _system_folders() -> set[Path]:
         if os.environ.get(var):
             names.append(os.environ[var])
     return {Path(n) for n in names}
+
+
+def version_line(output: str | None) -> str:
+    """The first line of a CLI's `--version` output that looks like a version, or "" (an error is not a version)."""
+    for line in (output or "").splitlines():
+        if re.search(r"\d+\.\d+", line):
+            return line.strip()[:80]
+    return ""
 
 
 def validate_folder(raw: object) -> Path:
@@ -523,7 +531,7 @@ class AgentManager:
         env = agent_environment(self._base_env)
         if agent.get("version_args"):
             out = self._quick([path, *agent.get("launcher_args", []), *agent["version_args"]], env)
-            info["version"] = (out or "").strip().splitlines()[0][:80] if out and out.strip() else ""
+            info["version"] = version_line(out)
         if agent.get("status_args"):
             out = self._quick([path, *agent.get("launcher_args", []), *agent["status_args"]], env) or ""
             if agent.get("signed_in") and re.search(agent["signed_in"], out):

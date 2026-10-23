@@ -61,7 +61,15 @@ function childEnvironment(extra = {}, base = process.env) {
 /** Find the executable without a shell. On Windows this honours PATHEXT (npx.cmd). */
 function resolveCommand(command, { platform = process.platform, env = process.env } = {}) {
   if (typeof command !== 'string' || !command || /[\0\r\n]/.test(command)) return null;
-  const extensions = platform === 'win32' ? ['', ...String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';')] : [''];
+  // On Windows an extensionless file is not executable: npm leaves a shell script called `codex` next to
+  // `codex.cmd`, and picking it fails with ENOENT. So a bare name only ever matches through PATHEXT (as
+  // Python's shutil.which does); a name that already carries an executable extension is used as written.
+  let extensions = [''];
+  if (platform === 'win32') {
+    const pathext = String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean);
+    const written = pathext.some((ext) => command.toLowerCase().endsWith(ext.toLowerCase()));
+    extensions = written ? [''] : pathext;
+  }
   const isFile = (file) => {
     try {
       return fs.statSync(file).isFile();

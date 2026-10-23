@@ -68,6 +68,47 @@ class AgentCase(unittest.TestCase):
         return self.manager.plan_action(agent, self.space["id"], mode, prompt)
 
 
+class VersionLineTest(unittest.TestCase):
+    def test_a_cli_error_is_never_shown_as_a_version(self):
+        self.assertEqual(agents.version_line("codex-cli 0.162.1\n"), "codex-cli 0.162.1")
+        self.assertEqual(agents.version_line("0.58.0"), "0.58.0")
+        error = "'D:\\Tools\\gemini.cmd\" \"--version' is not recognized as an internal or external command,\r\noperable program"
+        self.assertEqual(agents.version_line(error), "")
+        for empty in ("", None):
+            self.assertEqual(agents.version_line(empty), "")
+        self.assertEqual(agents.version_line("banner\nmock-agent 1.2.3 (test)"), "mock-agent 1.2.3 (test)")
+
+
+class CodexModesTest(unittest.TestCase):
+    def test_read_only_works_outside_a_git_repository_but_editing_modes_keep_the_check(self):
+        modes = {m["id"]: m for m in agents.agent_by_id(agents.CATALOG, "codex")["modes"]}
+        self.assertIn("--skip-git-repo-check", modes["plan"]["args"])
+        self.assertEqual(modes["plan"]["risk"], "read")
+        self.assertIn("read-only", modes["plan"]["args"])
+        self.assertNotIn("--skip-git-repo-check", modes["edit"]["args"])
+        self.assertNotIn("--skip-git-repo-check", modes["full"]["args"])
+
+
+@unittest.skipUnless(os.name == "nt", "Windows command resolution")
+class WindowsResolutionParityTest(unittest.TestCase):
+    def test_python_and_node_resolve_the_same_names_the_same_way(self):
+        import json
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("codex", "codex.cmd", "gemini", "gemini.cmd", "gemini.exe", "plain", "real.exe"):
+                (Path(tmp) / name).write_text("x", encoding="utf-8")
+            env = {"PATH": tmp, "PATHEXT": ".COM;.EXE;.BAT;.CMD"}
+            names = ["codex", "gemini", "plain", "real", "codex.cmd", "missing"]
+            py = {n: (Path(r).name.lower() if (r := shutil.which(n, path=tmp)) else None) for n in names}
+            js = json.loads(subprocess.run(["node", "-e", (
+                "const {resolveCommand}=require('./electron/mcp_client.js'); const path=require('path'); const out={};"
+                f"for (const n of {json.dumps(names)}) {{ const r=resolveCommand(n,{{platform:'win32',env:{json.dumps(env)}}}); out[n]=r?path.basename(r).toLowerCase():null; }}"
+                "process.stdout.write(JSON.stringify(out))")], cwd=Path(__file__).resolve().parent.parent,
+                capture_output=True, encoding="utf-8", check=True).stdout)
+        self.assertEqual(js, py)
+
+
 class PhraseTest(unittest.TestCase):
     def test_phrases_name_an_agent_and_a_task(self):
         cases = {
