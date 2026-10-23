@@ -14,6 +14,7 @@
 <script src="core.js" defer></script>
 <script src="ui.js" defer></script>
 <script src="tools.js" defer></script>
+<script src="code.js" defer></script>
 <script src="pages.js" defer></script>
 <script src="voice-grammar.js" defer></script>
 <script src="voice.js" defer></script>
@@ -27,6 +28,7 @@
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></symbol>
   <symbol id="i-flow" viewBox="0 0 24 24"><path d="M4 12h2M8 8v8M12 5v14M16 8v8M20 12h-2"/></symbol>
   <symbol id="i-tools" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v3"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></symbol>
   <symbol id="i-wispr" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
   <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></symbol>
@@ -57,6 +59,7 @@
       <a href="#/" data-route="home"><svg class="ico"><use href="#i-home"/></svg><span>Home</span></a>
       <a href="#/flow" data-route="flow"><svg class="ico"><use href="#i-flow"/></svg><span>Flow</span></a>
       <a href="#/tools" data-route="tools"><svg class="ico"><use href="#i-tools"/></svg><span>Tools</span><b class="count" id="navToolCount" hidden></b></a>
+      <a href="#/code" data-route="code"><svg class="ico"><use href="#i-code"/></svg><span>Code</span></a>
       <a href="#/wispr" data-route="wispr"><svg class="ico"><use href="#i-wispr"/></svg><span>Wispr</span></a>
       <a href="#/history" data-route="history"><svg class="ico"><use href="#i-history"/></svg><span>History</span></a>
       <a href="#/settings" data-route="settings"><svg class="ico"><use href="#i-settings"/></svg><span>Settings</span></a>
@@ -218,6 +221,16 @@
         </div>
       </div>
 
+      <div class="panel live-run mt-18" id="liveRun" hidden aria-live="polite">
+        <div class="panel-head">
+          <span class="step">Live &middot; coding agent</span>
+          <span class="mono quiet" id="liveMeta"></span>
+          <button class="button small ghost" id="liveCancel" type="button">Stop the agent</button>
+        </div>
+        <pre class="live-out" id="liveOut" tabindex="0" aria-label="Output from the coding agent (untrusted text)"></pre>
+        <p class="mono quiet" id="liveNote"></p>
+      </div>
+
       <div class="panel receipts mt-18" id="receipts">
         <div class="panel-head">
           <span class="step">03 &middot; Receipts</span>
@@ -301,6 +314,73 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- ============================================================ CODE -->
+    <section class="page" data-page="code" aria-labelledby="code-title" hidden>
+      <header class="page-head">
+        <p class="eyebrow">Hands &middot; your coding agents</p>
+        <h1 id="code-title">Say the task. <em>Your agent does the coding.</em></h1>
+        <p class="lede">Claude Code, Codex, Antigravity, OpenCode, Gemini CLI and Aider run on this computer, signed in with your own accounts. FlowMesh never sees those accounts. It shows the exact command and folder, and runs the task once when you approve.</p>
+      </header>
+
+      <div class="notice mb-12" id="codeHosted" hidden>
+        <p><strong>Coding agents run on your computer.</strong> This hosted page cannot start a program, so it can only describe them. Open the desktop app (or run <span class="agent-cmd">python bridge.py</span>) to connect Claude Code, Codex, Antigravity, OpenCode, Gemini CLI or Aider.</p>
+      </div>
+
+      <div class="trust-row" role="list">
+        <div role="listitem"><span class="risk" data-r="read">READ</span><p>Plan or read-only mode. The agent studies the project and proposes changes. It edits nothing.</p></div>
+        <div role="listitem"><span class="risk" data-r="write">WRITE</span><p>Edit mode. Changes files inside the project folder you chose. Always shown and approved first.</p></div>
+        <div role="listitem"><span class="risk" data-r="danger">DANGER</span><p>Skips the agent&rsquo;s own safety checks. Needs a second, explicit confirmation every time.</p></div>
+      </div>
+
+      <div id="codeDesktop" hidden>
+        <div class="code-grid">
+          <div class="panel" id="agentsPanel">
+            <div class="panel-head">
+              <span class="step">Agents</span>
+              <button class="button small ghost" id="agentsRefresh" type="button">Check again</button>
+            </div>
+            <ul class="agent-list" id="agentList" aria-live="polite"></ul>
+            <p class="mono quiet" id="agentsNote"></p>
+          </div>
+
+          <div class="panel" id="spacesPanel">
+            <div class="panel-head"><span class="step">Project folders</span><span class="mono quiet" id="spaceCount">0 folders</span></div>
+            <ul class="space-list" id="spaceList"></ul>
+            <p class="empty small" id="spaceEmpty">Add the folder of a project. An agent can only ever work inside a folder listed here.</p>
+            <form id="spaceForm" class="space-form" autocomplete="off">
+              <label for="spacePath">Full path of a project folder</label>
+              <input id="spacePath" type="text" spellcheck="false" placeholder="C:\Users\you\projects\my-app" maxlength="1024">
+              <label for="spaceLabel">Name <small>optional</small></label>
+              <input id="spaceLabel" type="text" maxlength="60" placeholder="my-app">
+              <label class="check"><input type="checkbox" id="spaceAck"><span>I understand a coding agent can read and change everything in this folder.</span></label>
+              <div class="builder-actions"><button class="button primary" type="submit">Add folder <svg class="ico"><use href="#i-arrow"/></svg></button></div>
+            </form>
+          </div>
+        </div>
+
+        <div class="panel mt-18" id="taskPanel">
+          <div class="panel-head"><span class="step">New coding task</span><span class="mono quiet">Plan &rarr; approve &rarr; run</span></div>
+          <form id="taskForm">
+            <div class="task-row">
+              <label for="taskAgent">Agent<select id="taskAgent"></select></label>
+              <label for="taskSpace">Project folder<select id="taskSpace"></select></label>
+            </div>
+            <fieldset class="mode-pick" id="modePick"><legend>How much may it do?</legend><div id="modeList"></div></fieldset>
+            <label for="taskPrompt">The task</label>
+            <textarea id="taskPrompt" rows="5" maxlength="8000" placeholder="Fix the failing test in tests/test_parser.py and explain what was wrong."></textarea>
+            <div class="say-foot">
+              <p class="hint">Or say it: <em>&ldquo;ask Codex to fix the failing test&rdquo;</em>. It uses your saved agent, folder and mode, and you still approve the plan.</p>
+              <button class="button primary" id="taskPlan" type="submit">Create plan <svg class="ico"><use href="#i-arrow"/></svg></button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <h2 class="group-title">Messaging and other tools</h2>
+      <p class="lede lede-gap">Discord, Slack, Notion and anything else with an MCP server connect on the Tools page. Pick a template, paste your token once, and FlowMesh keeps it in your OS keychain.</p>
+      <a class="button" href="#/tools">Open Tools <svg class="ico"><use href="#i-arrow"/></svg></a>
     </section>
 
     <!-- ============================================================ WISPR -->
@@ -529,7 +609,7 @@
       <label>Environment <small>NAME=value, one per line</small><textarea name="env" rows="2"></textarea></label>
     </div>
     <div data-t="http" hidden>
-      <label>URL<input name="url" type="url" placeholder="https://example.com/mcp"></label>
+      <label>URL<input name="url" type="text" inputmode="url" spellcheck="false" placeholder="https://example.com/mcp"></label>
       <label>Headers <small>Name: value, one per line</small><textarea name="headers" rows="2" placeholder="Authorization: Bearer ..."></textarea></label>
     </div>
     <label class="check"><input type="checkbox" name="auto_read"> <span>Let this server's <b>read-only</b> tools run without asking. Writes and deletes always ask.</span></label>

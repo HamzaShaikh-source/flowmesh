@@ -13,7 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const APP_NAME = 'FlowMesh';
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 
 const FIELDS = {
   board_url: 'FLOWMESH_BOARD_URL',
@@ -38,7 +38,7 @@ const DEFAULTS = {
 };
 
 const SECRET_ENV = { jev_key: 'TYPESAFE_API_KEY', ha_token: 'FLOWMESH_HA_TOKEN', llm_key: 'FLOWMESH_LLM_KEY' };
-const ACCOUNT_BLOBS = ['wispr_account', 'mcp_servers'];
+const ACCOUNT_BLOBS = ['wispr_account', 'mcp_servers', 'agents'];
 
 function configDir(env = process.env) {
   if (env.FLOWMESH_CONFIG_DIR) return env.FLOWMESH_CONFIG_DIR;

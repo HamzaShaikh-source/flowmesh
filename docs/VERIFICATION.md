@@ -263,3 +263,19 @@ policy — the page's own scripts are unaffected, and the CSP is doing its job.
 | macOS and Linux desktop binaries, built and run by a human | not verified here — built by CI on those runners; this machine is Windows. CI built **arm64** macOS only; an Intel-Mac build would need a `macos-13` job (the browser edition covers Intel Macs today) |
 | Code signing / notarisation | not signed — no certificates; Windows SmartScreen and macOS Gatekeeper will warn, and the docs say so |
 | The judge's browser and OS combination | cannot verify |
+
+## Coding agents and messaging templates (23 October 2026)
+
+Windows 11, the author's machine, Python 3.12, Node 24 test runner.
+
+| Check | Result |
+| --- | --- |
+| Detection of the six CLIs | all six found on `PATH`; Claude Code reported `loggedIn: true` via claude.ai, Codex reported "Logged in using ChatGPT" |
+| Real Codex run through the HTTP bridge (read-only, empty throwaway repo) | plan `risk: read`; command `codex exec -s read-only -C <folder> -` with the task on stdin; receipt `returned`; git saw 0 changed files. Codex could not start PowerShell inside its Windows sandbox, so it did not answer the question: a good demonstration that `returned` is not `verified` |
+| Real Claude Code run through the browser UI (read-only) | plan, approve and the live panel worked; the run ended `failed` with Claude's own "OAuth session expired and could not be refreshed". git saw two untracked files, written by hooks in the author's own Claude setup, and the receipt lists them without claiming the agent made them |
+| Full suites | Python 256 tests OK, Node 134 tests OK (includes 34 agent module, 15 Python bridge, 15 Electron runtime and 7 parity tests, all against a mock agent) |
+| Templates: Discord, Slack, Notion, Agent Switch | the Tools page fills command, arguments and the token placeholder correctly (checked in the UI); the servers themselves were **not** started |
+
+**Not verified:** an agent run that edits files with a real model; any real run of Antigravity,
+OpenCode, Gemini CLI or Aider; any of the four messaging servers talking to a real Discord, Slack,
+Notion or Switch.

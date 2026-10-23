@@ -8,8 +8,8 @@ widens *what* a plan can name; it does not change *who decides*.
 ## The flow
 
 1. **Connect** a server (Tools section, or the command palette `Ctrl K`). Templates exist for
-   files, git, GitHub, a browser, web fetch, library docs, memory and the Agent Switch docs.
-   Any other server works through the custom form. Templates are command lines copied from each
+   files, git, GitHub, a browser, web fetch, library docs, memory, Notion, Discord, Slack, your own
+   Agent Switch and the Agent Switch docs. Any other server works through the custom form. Templates are command lines copied from each
    server's own documentation; FlowMesh does not bundle, vendor, or vouch for them.
 2. **Plan.** Either speak/type a sentence (a language model, if you configured one, *proposes*
    calls) or use the **Builder**, which turns a tool's JSON schema into a form and can chain up
@@ -104,3 +104,23 @@ FlowMesh protects that boundary as follows:
 | `mcp_presets.py` · `electron/mcp_presets.js` | server templates (kept identical by a test) |
 | `web/tools.js` | workbench, builder, add-server dialog, demo tools, palette |
 | `tests/test_mcp_*.py` · `electron/test/mcp_*.test.js` | client, registry, bridge, planner, parity |
+
+## Messaging: Discord, Slack, Notion and Agent Switch
+
+These four are **templates**: they fill in the command (or URL) from each server's own README and
+ask for one token in a password field. Nothing is bundled and none of them has been run against a
+real workspace by FlowMesh's author (see [VERIFICATION.md](VERIFICATION.md)); treat a failed
+**Test** as the server's or the token's problem first, and the template as a starting point.
+
+| Template | Runs | You provide |
+| --- | --- | --- |
+| Discord | `npx -y mcp-discord` | the token of **your own** Discord bot, in `DISCORD_TOKEN` |
+| Slack | `npx -y slack-mcp-server@latest --transport stdio` | a Slack bot token (`xoxb-`), in `SLACK_MCP_XOXB_TOKEN` |
+| Notion | `npx -y @notionhq/notion-mcp-server` | a Notion integration token, in `NOTION_TOKEN` |
+| Agent Switch (yours) | remote MCP over HTTP | the MCP URL and bearer token of a [Switch](https://github.com/sandbox-quantum/switch) you host yourself |
+
+Sending a message is a `write` call: the plan shows the channel and the exact text, you approve it,
+and the receipt says `returned`, never "delivered". Agent Switch is a self-hosted bot platform for
+Slack, Teams, Discord and Telegram; FlowMesh does not run one and does not claim a hosted Switch
+integration. The token is kept in the credential store, never echoed back, and not passed to any
+other server.

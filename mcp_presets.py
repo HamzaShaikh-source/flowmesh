@@ -6,8 +6,8 @@ server's own documentation gives. Nothing here is installed, trusted or verified
 FlowMesh; adding one still goes through the explicit "this runs a program" gate and
 every call still needs a plan the person approves.
 
-`inputs` are values the person supplies; `{key}` placeholders in `args`, `url` and
-`headers` are replaced by the UI before the server is registered.
+`inputs` are values the person supplies; `{key}` placeholders in `args`, `url`, `headers`
+and `env` values are replaced by the UI before the server is registered.
 """
 
 PRESETS = [
@@ -61,6 +61,40 @@ PRESETS = [
         "id": "switch-docs", "label": "Agent Switch docs", "group": "Knowledge",
         "description": "Search the Agent Switch documentation (hosted, read-only). Switch brings AI teammates into Slack, Teams, Discord and Telegram.",
         "transport": "http", "url": "https://docs.switchagents.ai/mcp", "headers": {}, "inputs": [],
+        "docs": "https://github.com/sandbox-quantum/switch",
+    },
+    {
+        "id": "discord", "label": "Discord", "group": "Messaging",
+        "description": "Read and send messages in the Discord servers your own bot has joined. Template: the bot and its token are yours; FlowMesh has not verified this server end to end.",
+        "transport": "stdio", "command": "npx", "args": ["-y", "mcp-discord"],
+        "env": {"DISCORD_TOKEN": "{token}"},
+        "inputs": [{"key": "token", "label": "Discord bot token", "placeholder": "paste the bot token", "secret": True}],
+        "docs": "https://github.com/barryyip0625/mcp-discord",
+    },
+    {
+        "id": "slack", "label": "Slack", "group": "Messaging",
+        "description": "Read channels and post messages as your Slack app. Template: the app and its token are yours; FlowMesh has not verified this server end to end.",
+        "transport": "stdio", "command": "npx", "args": ["-y", "slack-mcp-server@latest", "--transport", "stdio"],
+        "env": {"SLACK_MCP_XOXB_TOKEN": "{token}"},
+        "inputs": [{"key": "token", "label": "Slack bot token (xoxb-…)", "placeholder": "xoxb-…", "secret": True}],
+        "docs": "https://github.com/korotovsky/slack-mcp-server",
+    },
+    {
+        "id": "notion", "label": "Notion", "group": "Knowledge",
+        "description": "Search and edit the Notion pages your integration can see. Template: the integration and its token are yours; FlowMesh has not verified this server end to end.",
+        "transport": "stdio", "command": "npx", "args": ["-y", "@notionhq/notion-mcp-server"],
+        "env": {"NOTION_TOKEN": "{token}"},
+        "inputs": [{"key": "token", "label": "Notion integration token", "placeholder": "ntn_…", "secret": True}],
+        "docs": "https://github.com/makenotion/notion-mcp-server",
+    },
+    {
+        "id": "switch", "label": "Agent Switch (yours)", "group": "Messaging",
+        "description": "Connect an Agent Switch you host yourself, so its AI teammates in Slack, Teams, Discord and Telegram can be reached from FlowMesh. Template: enter your own server's MCP URL and token.",
+        "transport": "http", "url": "{url}", "headers": {"Authorization": "Bearer {token}"},
+        "inputs": [
+            {"key": "url", "label": "Your Switch MCP URL (https)", "placeholder": "https://switch.example.com/mcp"},
+            {"key": "token", "label": "Bearer token", "placeholder": "paste the token", "secret": True},
+        ],
         "docs": "https://github.com/sandbox-quantum/switch",
     },
 ]

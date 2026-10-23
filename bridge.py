@@ -37,6 +37,7 @@ from urllib.parse import parse_qs
 from mcp_client import McpError
 import llm_planner
 from mcp_registry import MANAGER, public_tool
+from agents import MANAGER as AGENTS, AgentError, agent_by_id, agent_phrase, public_catalog
 import mcp_presets
 
 # How a connector failure maps onto HTTP. 401 is deliberately absent: it means "bad
@@ -228,6 +229,7 @@ def capabilities() -> dict[str, str]:
         "notify": "ready" if configured and settings()["phone_service"].startswith("mobile_app_") else "not_configured",
         "light": "ready" if configured and settings()["light_entity"].startswith("light.") else "not_configured",
         "tools": "ready" if any(s.get("enabled") for s in MANAGER._servers()) else "not_configured",
+        "agents": "ready" if agents_enabled() and any(a.get("installed") for a in AGENTS.detect()["agents"].values()) else "not_configured",
         "model": "ready" if llm_planner.configured() else "not_configured",
     }
 
@@ -324,6 +326,21 @@ def plan_command(command: object, dictation: dict | None = None, context: object
     if not command_is_usable(command) or FORBIDDEN.search(command.strip()):
         return None, generic, 422
     command = command.strip()
+    phrase = agent_phrase(command) if agents_enabled() else None
+    if phrase is not None:
+        # "ask codex to fix the failing test": the agent and the task come from the sentence; the
+        # folder and mode come from your saved defaults and are shown in the plan before anything runs.
+        agent_id, task = phrase
+        config = AGENTS.config()
+        agent = agent_by_id(AGENTS.catalog, agent_id)
+        if agent is None:
+            return None, "That coding agent is not supported.", 422
+        mode = config["default_mode"] if any(m["id"] == config["default_mode"] for m in agent["modes"]) else (
+            "edit" if any(m["id"] == "edit" for m in agent["modes"]) else agent["modes"][0]["id"])
+        try:
+            return prepare_agent_plan(agent_id, config["default_workspace"], mode, task, command=command, source="agent"), "", 200
+        except AgentError as exc:
+            return None, exc.message, 422
     notice = ""
     if llm_planner.configured():
         tools = MANAGER.catalog()["tools"]
@@ -348,6 +365,56 @@ def plan_command(command: object, dictation: dict | None = None, context: object
     if notice:
         plan["notice"] = f"{notice} Planned with local rules instead."
     return plan, "", 200
+
+
+def agents_enabled() -> bool:
+    return os.environ.get("FLOWMESH_AGENTS", "").lower() != "off"
+
+
+def prepare_agent_plan(agent_id: object, workspace_id: object, mode_id: object, prompt: object,
+                       command: str = "", source: str = "builder") -> dict:
+    """A plan whose one effect is a coding agent working in a project folder. Raises AgentError.
+
+    The risk is the agent's permission mode (plan = read, edit = write, anything that bypasses
+    the agent's own approvals = danger), chosen by FlowMesh and never by a model.
+    """
+    action = AGENTS.plan_action(agent_id, workspace_id, mode_id, prompt)
+    agent = agent_by_id(AGENTS.catalog, action["agent"])
+    mode = next(m for m in agent["modes"] if m["id"] == action["mode"])
+    action["about"] = mode["about"]
+    action["command"] = agents_preview(agent, mode, action["workspace_path"])
+    actions = [action, {"kind": "write_note", "target": "run_record", "label": "Save run record",
+                        "detail": "Markdown file in your FlowMesh folder, including the agent's output", "surface": "pc",
+                        "note": command or f"(built on the Code page: {action['prompt'][:200]})"}]
+    risk = action["risk"]
+    payload = {
+        "id": secrets.token_urlsafe(24), "route": "agent", "title": "Coding task",
+        "description": f"{action['agent_label']} will work in {action['workspace_path']} ({mode['label'].lower()}). {mode['about']}",
+        "source": source, "confidence": None, "also": [], "actions": actions, "risk": risk,
+        "needs_confirm": risk == "danger", "auto_run": False,
+        "expires": time.monotonic() + PLAN_LIFETIME, "created": timestamp(), "command": command or action["prompt"],
+    }
+    with PLAN_LOCK:
+        now = time.monotonic()
+        for key in [key for key, value in PLANS.items() if value["expires"] < now]:
+            del PLANS[key]
+        PLANS[payload["id"]] = payload
+    return {key: value for key, value in payload.items() if key not in {"expires", "command", "dictation"}}
+
+
+def agents_preview(agent: dict, mode: dict, folder: str) -> str:
+    """The command line that will run, with the task shown as a placeholder (it goes on stdin or a file)."""
+    from pathlib import Path as _Path
+
+    args, stdin = agents_mod_build(agent, mode, _Path(folder))
+    shown = " ".join(f'"{a}"' if " " in a else a for a in [agent["command"], *args])
+    return shown + ("   (task sent on stdin)" if stdin is not None else "")
+
+
+def agents_mod_build(agent: dict, mode: dict, folder):
+    import agents as agents_module
+
+    return agents_module.build_command(agent, mode, folder, "<task>", "<task file>")
 
 
 def prepare_tool_plan(calls: object, command: str = "", source: str = "builder", confidence: float | None = None,
@@ -706,6 +773,8 @@ def perform(action: dict) -> dict:
     """Execute one allowlisted action. No raw paths, URLs, or commands accepted."""
     kind = action.get("kind")
     target = action.get("target")
+    if kind == "agent_run":
+        return AGENTS.run(action) if agents_enabled() else {"status": "denied", "detail": "Coding agents are disabled on this install (FLOWMESH_AGENTS=off)."}
     if kind == "mcp_call":
         return perform_mcp(action)
     if kind == "open_url" and target in ALLOWED_URLS:
@@ -784,6 +853,46 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(data)
+
+    def agents_post(self, body: dict) -> None:
+        """Project folders, defaults, coding-task plans, cancel and sign-in."""
+        path = self.path
+        if not agents_enabled():
+            self.send_json({"error": "Coding agents are disabled on this install (FLOWMESH_AGENTS=off).", "kind": "disabled"}, 403)
+            return
+        try:
+            if path == "/api/agents/workspaces":
+                if body.get("acknowledged") is not True:
+                    self.send_json({"error": "A coding agent can read and change everything in a project folder. Acknowledge it first.",
+                                    "needs_acknowledgement": True}, 428)
+                    return
+                self.send_json({"workspace": AGENTS.upsert_workspace({k: body.get(k) for k in ("id", "label", "path")})})
+            elif path == "/api/agents/workspaces/remove":
+                if not isinstance(body.get("id"), str) or not AGENTS.remove_workspace(body["id"]):
+                    self.send_json({"error": "No such project folder"}, 404)
+                else:
+                    self.send_json({"removed": True})
+            elif path == "/api/agents/defaults":
+                self.send_json({"config": AGENTS.set_defaults(body)})
+            elif path == "/api/agents/refresh":
+                self.send_json(AGENTS.detect(refresh=True))
+            elif path == "/api/agents/plan":
+                if set(body) - {"agent", "workspace", "mode", "prompt"}:
+                    self.send_json({"error": "Invalid request"}, 400)
+                    return
+                self.send_json(prepare_agent_plan(body.get("agent"), body.get("workspace"), body.get("mode"), body.get("prompt")))
+            elif path == "/api/agents/signin":
+                self.send_json(AGENTS.open_login(body.get("agent")))
+            elif path.startswith("/api/agents/runs/") and path.endswith("/cancel"):
+                run_id = unquote(path[len("/api/agents/runs/"):-len("/cancel")])
+                if AGENTS.cancel(run_id):
+                    self.send_json({"cancelled": True})
+                else:
+                    self.send_json({"error": "That run is not running"}, 404)
+            else:
+                self.send_json({"error": "Not found"}, 404)
+        except AgentError as exc:
+            self.send_json({"error": exc.message, "kind": exc.kind}, 422)
 
     def mcp_post(self, body: dict) -> None:
         """Server registry and tool plans. Needs the session token like everything else."""
@@ -865,7 +974,7 @@ class Handler(SimpleHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = -1
-        limit = 40_000 if self.path.startswith("/api/mcp/") else 8192
+        limit = 40_000 if self.path.startswith(("/api/mcp/", "/api/agents/")) else 8192
         if 0 < length < limit:
             self._raw = self.rfile.read(length)
         elif length >= limit:
@@ -929,6 +1038,14 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/wispr/latest":
             self.send_json(wispr_latest())
+            return
+        if self.path == "/api/agents":
+            self.send_json({"enabled": agents_enabled(), "catalog": public_catalog(AGENTS.catalog), "config": AGENTS.config(),
+                            "detection": AGENTS.detect()})
+            return
+        if self.path.startswith("/api/agents/runs/"):
+            view = AGENTS.run_view(unquote(self.path[len("/api/agents/runs/"):]))
+            self.send_json(view if view is not None else {"error": "No such run"}, 200 if view is not None else 404)
             return
         if self.path == "/api/runs":
             self.send_json({"runs": list_runs()})
@@ -995,6 +1112,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if self.path.startswith("/api/mcp/"):
             self.mcp_post(body)
+            return
+        if self.path.startswith("/api/agents/"):
+            self.agents_post(body)
             return
         if self.path == "/api/wispr/account/connect":
             self.account_call(lambda: ACCOUNT.begin(self.callback_url()))
@@ -1091,6 +1211,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 # Stdio MCP servers are child processes; never leave them running after FlowMesh exits.
 atexit.register(MANAGER.close_all)
+atexit.register(AGENTS.close_all)
 
 
 def serve(port: int = 0) -> ThreadingHTTPServer:
