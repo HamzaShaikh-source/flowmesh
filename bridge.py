@@ -748,6 +748,9 @@ class Handler(SimpleHTTPRequestHandler):
                 existing = MANAGER.get(server.get("id")) if isinstance(server, dict) else None
                 changes_program = isinstance(server, dict) and server.get("transport") == "stdio" and (
                     existing is None or existing.get("command") != server.get("command") or existing.get("args") != server.get("args"))
+                if isinstance(server, dict) and server.get("transport") == "stdio" and os.environ.get("FLOWMESH_MCP_STDIO", "").lower() == "off":
+                    self.send_json({"error": "Local-program MCP servers are disabled on this install (FLOWMESH_MCP_STDIO=off).", "kind": "disabled"}, 403)
+                    return
                 if changes_program and body.get("acknowledged") is not True:
                     self.send_json({"error": "Adding or changing a stdio server runs a program on this computer. Acknowledge it first.",
                                     "needs_acknowledgement": True}, 428)

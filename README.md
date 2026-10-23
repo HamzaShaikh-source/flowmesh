@@ -26,6 +26,15 @@ registration and device authorization were verified against Wispr's live servers
 after a human approves needs the owner's login and is **not** yet verified —
 [details and evidence](docs/WISPR-CONNECTOR.md#wispr-account-the-supported-route).
 
+**Also new — hands for anything, behind the same approval.** The desktop apps now connect any
+[MCP](https://modelcontextprotocol.io) server (files, git, GitHub, a real browser, messaging,
+your own) and an optional language model that can turn one sentence into a validated tool plan.
+Every call is shown with its server, tool, exact arguments and a FlowMesh-derived risk level
+(`read` / `write` / `danger`); you approve once, each call runs once, and receipts are honest
+(`returned` is not `verified`). The hosted page ships five in-page demo tools so you can try the
+flow without installing anything. Details, limits and what is not verified:
+[docs/MCP.md](docs/MCP.md).
+
 ---
 
 ## The problem it solves
@@ -154,8 +163,8 @@ Full detail: [docs/SECURITY.md](docs/SECURITY.md).
 ## Tests and what has actually been run
 
 ```bash
-python -m unittest discover -s tests -v   # 107 tests: planner, HTTP contract, adapters, artifacts, parity, Wispr account
-npm --prefix electron test                # 56 tests: Electron runtime, planner golden, Wispr account
+python -m unittest discover -s tests -v   # 183 tests: planner, HTTP contract, adapters, artifacts, parity, Wispr account, MCP, model planner
+npm --prefix electron test                # 97 tests: Electron runtime, planner golden, Wispr account, MCP, model planner
 node --check web/core.js && node --check web/ui.js
 ```
 
@@ -173,6 +182,10 @@ web/ui.js             plan → approve → receipts, both runtimes
 bridge.py             local runtime: token, plans, execution, run records
 flowmesh_config.py    settings + OS credential store
 wispr_account.py      Wispr OAuth device sign-in + Scratchpad notes over MCP
+mcp_client.py         MCP stdio/HTTP client (hardened)   
+mcp_registry.py       MCP servers, risk levels, schema checks, tool plans
+llm_planner.py        model proposes a routine or tool calls; never runs them
+web/tools.js          tools workbench, builder, demo tools, command palette
 desktop.py            launcher: window / browser / headless
 tests/                planner, HTTP/security, adapters, artifacts, parity
 docs/                 decision record, quickstart, architecture, security, electron, verification, Wispr connector, demo script, submission kit

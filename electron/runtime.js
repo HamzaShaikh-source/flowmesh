@@ -151,6 +151,7 @@ function createRuntime(options = {}) {
     fetchImpl = globalThis.fetch,
     wisprAccount = null,
     mcpManager = null,
+    confirmProgram = null,
   } = options;
 
   const sessionToken = crypto.randomBytes(24).toString('base64url');
@@ -738,11 +739,19 @@ function createRuntime(options = {}) {
         const existing = server && typeof server === 'object' ? mcp.get(server.id) : null;
         const changesProgram = server && typeof server === 'object' && server.transport === 'stdio' && (
           !existing || existing.command !== server.command || JSON.stringify(existing.args) !== JSON.stringify(server.args));
+        if (server && typeof server === 'object' && server.transport === 'stdio' && String(env.FLOWMESH_MCP_STDIO || '').toLowerCase() === 'off') {
+          sendJson(response, { error: 'Local-program MCP servers are disabled on this install (FLOWMESH_MCP_STDIO=off).', kind: 'disabled' }, 403);
+          return;
+        }
         if (changesProgram && body.acknowledged !== true) {
           sendJson(response, {
             error: 'Adding or changing a stdio server runs a program on this computer. Acknowledge it first.',
             needs_acknowledgement: true,
           }, 428);
+          return;
+        }
+        if (changesProgram && confirmProgram && !(await confirmProgram(server))) {
+          sendJson(response, { error: 'You declined to let FlowMesh run that program.', kind: 'declined' }, 403);
           return;
         }
         sendJson(response, { server: await mcp.upsert(server) });

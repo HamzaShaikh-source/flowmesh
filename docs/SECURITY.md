@@ -11,6 +11,8 @@ FlowMesh can open programs and talk to your home automation. It is designed so t
 | any other local process | untrusted |
 | Home Assistant | authenticated remote service; responses are data, never instructions |
 | Jev Choice | optional, untrusted model output used **only** to pick a registered route and numbers |
+| language model planner | optional, untrusted: may only *propose* a routine or tool calls, every one re-validated and approved by a person |
+| MCP servers and their output | third-party programs/services; output is untrusted text, shown and never interpreted |
 
 ## Controls in the local runtime
 
@@ -21,7 +23,7 @@ FlowMesh can open programs and talk to your home automation. It is designed so t
 - **JSON-only bodies, size-capped**, malformed JSON → `400`.
 - **No raw action payloads.** The client may only send a plan identifier. A body that tries to describe actions directly → `400 Invalid plan`. The server never executes anything the client composed.
 - **Single-use, expiring plans.** 300-second lifetime, consumed on first execute, unknown/expired/replayed → `409`. Plans live in memory, so a restart invalidates everything.
-- **Fixed action registry.** `open_url` only accepts the configured `board_url` / `docs_url`; `launch_app` only accepts `notepad` / `calculator`; `timer` only schedules; `write_note` only writes into the artifact directory; `notify` and `light` only call the configured Home Assistant service with a fixed payload shape.
+- **Fixed routine registry.** The built-in routines are fixed; MCP tool calls are the only open-ended action and have their own controls (see "MCP tools" below). `open_url` only accepts the configured `board_url` / `docs_url`; `launch_app` only accepts `notepad` / `calculator`; `timer` only schedules; `write_note` only writes into the artifact directory; `notify` and `light` only call the configured Home Assistant service with a fixed payload shape.
 - **Deny list before planning.** Destructive, payment, credential and physical-safety vocabulary (`delete`, `purchase`, `password`, `oven`, `door`, …) returns `422` with a reason and no plan.
 - **Artifact writes are contained.** Names are generated (`flowmesh-<timestamp>-<route>-<id>.md`), never taken from input; writes are atomic (`.tmp` → `replace`); the byte count and SHA-256 are returned so the file can be verified independently.
 - **Secrets never cross the API.** `public_settings()` returns `jev_connected` / `ha_token_connected` booleans and a backend name only. Secret values come from the OS credential store (Windows Credential Manager / macOS Keychain / Secret Service) or a `0600` fallback file, and are read at call time.
@@ -48,13 +50,32 @@ The Electron app reuses the same loopback contract and the same safety rules; wh
 - **Same allowlists, same refusals.** `open_url` still only opens the configured board/docs URL, launcher targets come from a per-OS fixed list (`notepad`/`calc` on Windows, `TextEdit`/`Calculator` on macOS, `gedit`/`gnome-calculator` on Linux), bodies are capped, plans are single-use and expire in 300 seconds.
 - **Unsigned binaries.** The Windows `.exe`, macOS `.dmg` and Linux `.AppImage` are not code-signed or notarized; SmartScreen and Gatekeeper will warn. There is no auto-updater and no telemetry.
 
+## MCP tools (added after the routines above)
+
+Full detail in [MCP.md](MCP.md). The important changes to the threat model:
+
+- **The action set is no longer fixed.** A registered MCP server can do whatever that server
+  does, but only through a plan whose exact calls a person read and approved. Risk is derived by
+  FlowMesh (a server cannot lower its own), `danger` calls need a second confirmation, and
+  plans/execute carry only an id plus that confirmation, never arguments.
+- **Starting a local server is running a program.** Started without a shell, with a minimal
+  environment (FlowMesh's secrets are not inherited), server-initiated requests refused, output
+  capped and sanitised, children killed on close/idle/exit, `cmd.exe` metacharacters refused for
+  Windows shims. Adding or changing a program needs a UI acknowledgement; **Electron additionally
+  asks through a native OS dialog the page cannot click.** `FLOWMESH_MCP_STDIO=off` disables
+  local-program servers on any install.
+- **Server credentials** (environment values, headers) are stored in the credential store or a
+  `0600` file and returned to the page masked.
+- **The model planner is not a trust boundary**: its JSON is validated like hostile input, and
+  sentences with forbidden vocabulary never reach it.
+
 ## Receipt integrity
 
-`sent` means "handed to the OS or an HTTP client". It is never promoted to `verified` without an observation: a spawned process, a scheduled timer, a file hash, or a Home Assistant state read-back that equals the requested brightness. This is enforced in the adapters, and `tests/test_actions.py` asserts that an unconfigured integration can never produce a success-looking status.
+`returned` (an MCP tool answered) is likewise not `verified`, and a tool timeout is `unknown`. `sent` means "handed to the OS or an HTTP client". It is never promoted to `verified` without an observation: a spawned process, a scheduled timer, a file hash, or a Home Assistant state read-back that equals the requested brightness. This is enforced in the adapters, and `tests/test_actions.py` asserts that an unconfigured integration can never produce a success-looking status.
 
 ## Known limits (stated, not hidden)
 
-- The desktop bridge is protected by a loopback bind plus a token, not by OS-level IPC permissions: another process running **as the same user** that reads the token from the launch URL could drive it. It cannot do more than a human at the keyboard could, since the action set is fixed.
+- The desktop bridge is protected by a loopback bind plus a token, not by OS-level IPC permissions: another process running **as the same user** that reads the token from the launch URL could drive it. For the built-in routines that is no more than a human at the keyboard could do. **With MCP configured it can also call any tool on an already-registered server after producing a plan (it can approve its own plan, as the page can), and on the Python runtime it can register a new local program, since only the Electron app has a native confirmation.** Same-user local malware can do all of this without FlowMesh anyway, but it is a real change; set `FLOWMESH_MCP_STDIO=off` or do not register servers you do not want reachable.
 - The Windows build is unsigned, so SmartScreen may warn on first run.
 - Home Assistant over plain `http://` on your LAN is allowed if you configure it; use `https://` or a local-only host if you care about that hop.
 - There is no multi-user model: one machine, one user, no accounts, no remote access.

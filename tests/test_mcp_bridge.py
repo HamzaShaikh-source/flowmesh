@@ -179,3 +179,14 @@ class RoutinesUnchangedTest(McpBridgeCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StdioLockTest(McpBridgeCase):
+    def test_stdio_servers_can_be_disabled_for_the_whole_install(self):
+        with patch.dict("os.environ", {"FLOWMESH_MCP_STDIO": "off"}):
+            status, _, body = self.call("POST", "/api/mcp/servers", {"server": SERVER, "acknowledged": True})
+            self.assertEqual(status, 403)
+            self.assertEqual(self.json_of(body)["kind"], "disabled")
+            self.assertEqual(self.json_of(self.call("GET", "/api/mcp/servers")[2])["servers"], [])
+            remote = {"id": "remote", "transport": "http", "url": "https://example.com/mcp"}
+            self.assertEqual(self.call("POST", "/api/mcp/servers", {"server": remote})[0], 200)

@@ -336,3 +336,33 @@ test('settings: model fields validate in the Electron store like the Python one'
   assert.equal(store.publicSettings().llm_connected, true);
   assert.ok(!JSON.stringify(store.publicSettings()).includes('sk-secret'));
 });
+
+test('a native confirmation can veto a program even when the request says acknowledged', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flowmesh-rt-'));
+  const store = createStore({ dir: path.join(dir, 'cfg'), env: {}, cipher: null });
+  const asked = [];
+  let answer = false;
+  const runtime = createRuntime({ port: 0, host: '127.0.0.1', store, confirmProgram: async (server) => { asked.push(server.command); return answer; } });
+  const port = await runtime.listen(0);
+  const post = (body) => fetch(`http://127.0.0.1:${port}/api/mcp/servers`, {
+    method: 'POST', headers: { 'X-FlowMesh-Token': runtime.sessionToken, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  try {
+    const refused = await post({ server: SERVER, acknowledged: true });
+    assert.equal(refused.status, 403);
+    assert.deepEqual(asked, [process.execPath]);
+    assert.deepEqual(runtime.mcp.listServers(), [], 'a vetoed program must not be saved');
+    answer = true;
+    assert.equal((await post({ server: SERVER, acknowledged: true })).status, 200);
+    assert.equal(runtime.mcp.listServers().length, 1);
+    // Toggling an existing program asks nothing: only a new or changed command does.
+    asked.length = 0;
+    assert.equal((await post({ server: { ...SERVER, env: { NOTES_TOKEN: '********' }, enabled: false }, acknowledged: false })).status, 200);
+    assert.deepEqual(asked, []);
+    // An http server runs no program, so it never triggers the dialog.
+    assert.equal((await post({ server: { id: 'remote', transport: 'http', url: 'https://example.com/mcp' } })).status, 200);
+    assert.deepEqual(asked, []);
+  } finally {
+    await runtime.close();
+  }
+});

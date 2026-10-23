@@ -256,6 +256,23 @@ async function start() {
   runtime = createRuntime({
     store,
     openExternal: (url) => shell.openExternal(url),
+    // A native, out-of-band confirmation. The web layer (and any process holding the
+    // session token) can send `acknowledged: true`, but cannot click this dialog.
+    confirmProgram: async (server) => {
+      const line = [server.command, ...(server.args || [])].join(' ');
+      const { response } = await dialog.showMessageBox(windowRef || undefined, {
+        type: 'warning',
+        buttons: ['Cancel', 'Allow this program'],
+        defaultId: 0,
+        cancelId: 0,
+        title: 'FlowMesh: run a program?',
+        message: `Allow FlowMesh to run this program as an MCP server?`,
+        detail: `${line.slice(0, 600)}
+
+It will run with your permissions. Only allow programs you recognise.`,
+      });
+      return response === 1;
+    },
   });
 
   const port = await runtime.listen(0);
