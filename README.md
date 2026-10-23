@@ -210,8 +210,8 @@ The browser UI and every other local process are treated as untrusted. Full deta
 ## Tests and what has actually been run
 
 ```bash
-python -m unittest discover -s tests -v   # 334 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
-npm test                                  # 181 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
+python -m unittest discover -s tests -v   # 337 tests: planner, HTTP contract, adapters, Wispr, MCP, model planner, coding agents, parity
+npm test                                  # 186 tests: Electron runtime, planner golden, Wispr, MCP, coding agents, UI contract, voice grammar
 ```
 
 [docs/VERIFICATION.md](docs/VERIFICATION.md) is the dated log with exact commands, including what is *not*

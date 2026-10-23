@@ -95,6 +95,7 @@ const CATALOG = [
         "args": [
           "-s",
           "read-only",
+          "--skip-git-repo-check",
           "-C",
           "{dir}",
           "-"

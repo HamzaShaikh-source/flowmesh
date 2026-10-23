@@ -273,7 +273,7 @@ Windows 11, the author's machine, Python 3.12, Node 24 test runner.
 | Detection of the six CLIs | all six found on `PATH`; Claude Code reported `loggedIn: true` via claude.ai, Codex reported "Logged in using ChatGPT" |
 | Real Codex run through the HTTP bridge (read-only, empty throwaway repo) | plan `risk: read`; command `codex exec -s read-only -C <folder> -` with the task on stdin; receipt `returned`; git saw 0 changed files. Codex could not start PowerShell inside its Windows sandbox, so it did not answer the question: a good demonstration that `returned` is not `verified` |
 | Real Claude Code run through the browser UI (read-only) | plan, approve and the live panel worked; the run ended `failed` with Claude's own "OAuth session expired and could not be refreshed". git saw two untracked files, written by hooks in the author's own Claude setup, and the receipt lists them without claiming the agent made them |
-| Full suites | Python 334 tests OK, Node 181 tests OK (after relays, the wake word and councils; the earlier 34+15+15+7 agent tests are part of these) (includes 34 agent module, 15 Python bridge, 15 Electron runtime and 7 parity tests, all against a mock agent) |
+| Full suites | Python 337 tests OK, Node 186 tests OK (after relays, the wake word and councils; the earlier 34+15+15+7 agent tests are part of these) (includes 34 agent module, 15 Python bridge, 15 Electron runtime and 7 parity tests, all against a mock agent) |
 | Templates: Discord, Slack, Notion, Agent Switch | the Tools page fills command, arguments and the token placeholder correctly (checked in the UI); the servers themselves were **not** started |
 
 **Not verified:** an agent run that edits files with a real model; any real run of Antigravity,
@@ -312,3 +312,31 @@ how to use them: the command list was only reachable by saying "what can I say".
 Home link now do. Checked in the real page at desktop and phone widths: nine nav items fit with no horizontal
 overflow; the commands are generated (11 groups, 38 try-it buttons, 1 note); clicking "zoom in" and "reset zoom"
 worked; a test fails if any offered phrase does nothing or could approve or delete.
+
+## The shipped Windows build, run for real (23 October 2026)
+
+Run: `FlowMesh-1.7.3-win-x64.exe` (the release asset) on the author's Windows 11 machine, driven through its own HTTP
+API, once headless (`--server-only`) and once with its window.
+
+| Check | Result |
+| --- | --- |
+| Starts, reports its version and platform | yes: `1.7.3`, `win32`, desktop runtime |
+| Wispr history reader | **works**: `connected`, 21 dictations / 49 words read from the real local Wispr database |
+| Wispr live pickup | reachable (`/api/wispr/latest` answered `none`: no fresh dictation); **not exercised with a real Wispr key press** |
+| Wispr account (sign-in, Scratchpad) | `disconnected`; the post-sign-in token exchange is **still unverified** |
+| Planner | `Rules` (local, deterministic) because no model key is configured. **Nothing is "AI-backed" by default**; a model only proposes plans if you add a key, and that path was not run here |
+| Coding agents detected | all six found; Codex and OpenCode reported signed in, Claude Code signed out |
+| A real read-only Codex task | **failed in 1.7.3** (see bugs); after the fixes, it ran and the receipt was `returned`, but Codex could not read the file because its own Windows sandbox failed (`setup refresh had errors`). **No real agent task has produced a real answer through FlowMesh yet** |
+| Window screenshot (pilot) | **works**: a 130 KB PNG of the real window saved with a SHA-256; the image shows the app |
+| MCP servers, Discord/Slack/Notion/Switch, Home Assistant, relays and councils with real models, wake word with a real voice, Windows volume keys | **not run** in this check |
+
+Bugs this check found in the shipped 1.7.3 (fixed after it, not yet released):
+
+1. **Windows command resolution (Electron).** `resolveCommand('codex')` returned npm's extensionless shell script
+   instead of `codex.cmd`, so Codex, OpenCode and Gemini CLI could not be started, and neither could any
+   `npx`-based MCP server, from the Electron app. The Python runtime was correct. A bare name now resolves through
+   `PATHEXT` as `shutil.which` does, with a parity test against Python on Windows.
+2. **Codex read-only in a folder that is not a git repository** was refused by Codex ("Not inside a trusted
+   directory"). Read-only mode now passes `--skip-git-repo-check`; editing modes keep the check.
+3. **A CLI error was displayed as a version** (Gemini's local wrapper on this machine fails when launched without a
+   shell, in both runtimes). A version is now only a line that looks like one.
