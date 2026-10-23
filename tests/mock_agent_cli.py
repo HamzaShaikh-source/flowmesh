@@ -38,7 +38,7 @@ print(json.dumps({"argv": argv, "cwd": os.getcwd(), "task": task, "leaked": leak
 
 if "ANSI" in task:
     print("\x1b[31mred\x1b[0m \x1b]0;title\x07plain \x07bell \x00nul")
-if m := re.search(r"WRITE:(\S+)", task):
+if m := re.search(r"WRITE:([\w.]+)", task):
     with open(m.group(1), "w", encoding="utf-8") as handle:
         handle.write("created by the mock agent\n")
 if "SPLIT" in task:  # one character delivered in two separate writes

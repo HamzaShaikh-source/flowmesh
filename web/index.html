@@ -18,6 +18,7 @@
 <script src="pages.js" defer></script>
 <script src="voice-grammar.js" defer></script>
 <script src="voice.js" defer></script>
+<script src="wake.js" defer></script>
 <script src="motion.js" defer></script>
 </head>
 <body data-mode="detecting">
@@ -364,10 +365,22 @@
           <div class="panel-head"><span class="step">New coding task</span><span class="mono quiet">Plan &rarr; approve &rarr; run</span></div>
           <form id="taskForm">
             <div class="task-row">
-              <label for="taskAgent">Agent<select id="taskAgent"></select></label>
+              <label for="taskAgent" id="taskAgentLabel">Agent<select id="taskAgent"></select></label>
               <label for="taskSpace">Project folder<select id="taskSpace"></select></label>
             </div>
-            <fieldset class="mode-pick" id="modePick"><legend>How much may it do?</legend><div id="modeList"></div></fieldset>
+            <fieldset class="mode-pick" id="teamPick">
+              <legend>Team up <small>optional</small></legend>
+              <label for="teamKind" class="sr-only">Pattern</label>
+              <select id="teamKind">
+                <option value="single">One agent</option>
+                <option value="review">Work, then a second agent reviews</option>
+                <option value="chain">Plan, build, review (three agents)</option>
+                <option value="compare">Ask several agents and compare (read-only)</option>
+              </select>
+              <div class="team-agents" id="teamAgents" hidden></div>
+              <p class="hint" id="teamHint"></p>
+            </fieldset>
+            <fieldset class="mode-pick" id="modePick"><legend id="modeLegend">How much may it do?</legend><div id="modeList"></div></fieldset>
             <label for="taskPrompt">The task</label>
             <textarea id="taskPrompt" rows="5" maxlength="8000" placeholder="Fix the failing test in tests/test_parser.py and explain what was wrong."></textarea>
             <div class="say-foot">
@@ -412,6 +425,23 @@
           <div class="toggle-row"><div><div class="t">Allow "approve" by voice</div><div class="d">Off by default: a TV or a video could say it. Even when on, danger plans always need a click.</div></div><label class="switch"><input type="checkbox" id="optVoiceApprove" aria-label="Allow approve by voice"><span></span></label></div>
           <div class="toggle-row"><div><div class="t">Read plans and results aloud</div><div class="d">Uses your device's voice. Only FlowMesh's own summary is spoken, never raw tool output.</div></div><label class="switch"><input type="checkbox" id="optSpeak" aria-label="Read aloud"><span></span></label></div>
           <p class="quiet small mt-14" id="micNote"></p>
+        </div>
+
+        <div class="card" id="wakeCard" hidden>
+          <div class="panel-head"><span class="step">Wake word</span><span class="wispr-state" id="wakeState" data-state="idle">off</span></div>
+          <div class="toggle-row"><div><div class="t">Listen for &ldquo;Hey FlowMesh&rdquo;</div><div class="d">Offline, with the speech recogniser built into Windows. Nothing you say is recorded, transcribed or sent anywhere: it only waits for the phrase. Your microphone stays open while this is on, and it switches off when you quit.</div></div><label class="switch"><input type="checkbox" id="wakeToggle" aria-label="Listen for the wake word"><span></span></label></div>
+          <p class="quiet small" id="wakeDetail"></p>
+          <form id="wakeForm" class="space-form" autocomplete="off">
+            <label for="wakeShortcut">Wispr shortcut to press when it hears you <small>optional</small></label>
+            <input id="wakeShortcut" type="text" spellcheck="false" maxlength="40" placeholder="ctrl+alt+space">
+            <label for="wakeHold">Hold it for <small>seconds; 0 taps it</small></label>
+            <input id="wakeHold" type="number" min="0" max="30" step="1" value="0">
+            <div class="builder-actions">
+              <button class="button small primary" type="submit">Save shortcut</button>
+              <button class="button small ghost" id="wakeTest" type="button">Test it in 3 seconds</button>
+            </div>
+          </form>
+          <p class="quiet small mt-14">Tap if your Wispr shortcut toggles hands-free dictation; add a hold time if it is push-to-talk. Wispr&rsquo;s own shortcut may use keys Windows cannot send (for example Fn): check it in Wispr&rsquo;s settings. Windows only for now. False and missed wakes both happen.</p>
         </div>
       </div>
 
@@ -583,6 +613,7 @@
 <!-- Voice dock: the same capsule on every page. -->
 <div class="dock" id="voiceDock" data-state="idle" role="group" aria-label="Voice">
   <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+  <span class="wake-badge mono" id="wakeBadge" hidden title="Listening for Hey FlowMesh">wake on</span>
   <span class="dock-text"><b id="dockTitle">Voice</b><span id="dockHint">Hold your Wispr key and talk</span></span>
   <button class="dock-btn quiet-btn" id="speakBtn" type="button" aria-pressed="false" aria-label="Read plans and results aloud"><svg class="ico sm"><use href="#i-speaker"/></svg></button>
   <button class="dock-btn" id="micBtn" type="button" aria-pressed="false" aria-label="Start listening with this device's microphone"><svg class="ico"><use href="#i-mic"/></svg></button>

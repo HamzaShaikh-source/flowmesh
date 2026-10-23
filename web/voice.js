@@ -349,7 +349,7 @@
     if (UI.mode() === 'desktop') startPolling();
   }
 
-  window.FlowMeshVoice = { parseCommand: parseCommand, paletteItems: paletteItems, speak: speak, options: function () { return Object.assign({}, opt); } };
+  window.FlowMeshVoice = { repaint: paintDock, parseCommand: parseCommand, paletteItems: paletteItems, speak: speak, options: function () { return Object.assign({}, opt); } };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

@@ -104,7 +104,7 @@ def secret(name: str) -> str:
     return stored or os.environ.get(SECRET_ENV[name], "")
 
 
-ACCOUNT_BLOBS = {"wispr_account", "mcp_servers", "agents"}
+ACCOUNT_BLOBS = {"wispr_account", "mcp_servers", "agents", "wake"}
 
 
 def load_blob(name: str) -> dict:

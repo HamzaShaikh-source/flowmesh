@@ -421,6 +421,11 @@ a.stat:hover { border-color: var(--ink); transform: translateY(-2px); }
 .mode-option input { grid-row: 1 / span 2; margin-top: 3px; }
 .mode-option .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-weight: 700; }
 .mode-option small { grid-column: 2; color: var(--muted); font-size: .8rem; }
+.wake-badge { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--lilac); color: var(--ink); font-weight: 700; letter-spacing: .08em; animation: pulse 2.4s ease-in-out infinite; }
+.team-agents { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 12px; }
+.team-agents label { display: flex; flex-direction: column; gap: 6px; }
+#teamHint { margin-top: 8px; }
+.live-step { color: var(--cream); opacity: .7; }
 #taskPrompt { min-height: 130px; resize: vertical; margin-bottom: 4px; }
 .live-run[data-state="running"] { border-color: var(--ink); }
 .live-out { margin: 0; padding: 14px 16px; max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: .76rem; line-height: 1.55; background: var(--ink); color: var(--cream); border-radius: 12px; }
@@ -547,6 +552,15 @@ dialog::backdrop { background: rgba(26, 26, 26, .45); backdrop-filter: blur(4px)
 @keyframes wave { 0%, 100% { height: 5px; } 50% { height: 24px; } }
 @keyframes breathe { 0%, 100% { height: 5px; } 50% { height: 10px; } }
 
+/* Headline reveal: only active once motion.js has wrapped the words and added .split-on. */
+.split-word { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: .14em; margin-bottom: -.14em; }
+.split-on .split-word > span { display: inline-block; transform: translateY(108%); animation: word-up .75s var(--ease) forwards; animation-delay: calc(var(--i) * 55ms); }
+@keyframes word-up { to { transform: none; } }
+
+/* Page changes cross-fade with the View Transitions API where it exists; the voice dock stays put. */
+.dock { view-transition-name: dock; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .22s; }
+
 /* Infinite decoration is switched off outright under reduced motion (clamping its duration
    would turn it into a flicker); one-shot transitions are simply shortened. */
 @media (prefers-reduced-motion: reduce) {
@@ -557,6 +571,8 @@ dialog::backdrop { background: rgba(26, 26, 26, .45); backdrop-filter: blur(4px)
   .specimen-actions li[data-state="running"] .node, .button[aria-busy="true"]::after { animation: none !important; }
   .marquee-track { flex-wrap: wrap; width: auto; }
   .will-reveal { opacity: 1; transform: none; }
+  .split-on .split-word > span { transform: none; animation: none; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
   .button:hover, a.stat:hover, .preset:hover, .run:hover { transform: none; }
 }
 

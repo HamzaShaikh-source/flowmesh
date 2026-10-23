@@ -42,6 +42,12 @@ function mockCatalog() {
       ...base, id: 'ghost', label: 'Ghost', command: 'definitely-not-installed-xyz', launcher_args: [], base_args: [], prompt_via: 'stdin',
       modes: [{ id: 'edit', label: 'Edit', risk: 'write', args: ['--stdin'], about: '' }],
     },
+    ...['mock2', 'mock3'].map((id) => ({
+      ...base, id, label: `Mock ${id.slice(-1)}`, base_args: [], prompt_via: 'stdin', modes: [
+        { id: 'plan', label: 'Plan', risk: 'read', args: ['--stdin', '--mode', 'plan'], about: '' },
+        { id: 'edit', label: 'Edit', risk: 'write', args: ['--stdin', '--mode', 'edit'], about: '' },
+      ],
+    })),
   ];
 }
 
@@ -284,4 +290,50 @@ test('the feature can be switched off', async () => {
     assert.equal((await post('/api/agents/defaults', {})).status, 403);
     assert.equal((await get('/api/agents')).json.enabled, false);
   }, { env: { FLOWMESH_AGENTS: 'off' } });
+});
+
+test('relay: work then review hands the output over as untrusted data and skips after a failure', async () => {
+  await withRuntime(async ({ post, folder }) => {
+    const space = await folder();
+    const body = (prompt, kind = 'review', agents = ['mock', 'mock2'], mode = 'edit') => ({ kind, workspace: space.id, prompt, agents, mode });
+    const planned = await post('/api/agents/relay', body('WRITE:made.txt'));
+    assert.equal(planned.status, 200, JSON.stringify(planned.json));
+    const steps = planned.json.actions.filter((a) => a.kind === 'agent_run');
+    assert.deepEqual(steps.map((a) => [a.role, a.risk, a.handoff_from]), [['work', 'write', null], ['review', 'read', 0]]);
+    assert.equal(planned.json.risk, 'write');
+    assert.equal(planned.json.auto_run, false);
+    const results = (await post('/api/execute', { plan_id: planned.json.id })).json.results;
+    assert.deepEqual(results.slice(0, 2).map((r) => r.status), ['returned', 'returned']);
+    assert.match(results[1].output, /untrusted/);
+    assert.match(results[1].output, /made\.txt/);
+    assert.equal(results[2].status, 'verified');
+
+    const failing = await post('/api/agents/relay', body('FAIL'));
+    const failed = (await post('/api/execute', { plan_id: failing.json.id })).json.results;
+    assert.equal(failed[0].status, 'failed');
+    assert.equal(failed[1].status, 'denied');
+    assert.match(failed[1].detail, /Skipped/);
+  });
+});
+
+test('relay: chain, compare, danger and bad shapes', async () => {
+  await withRuntime(async ({ post, folder }) => {
+    const space = await folder();
+    const body = (kind, agents, extra = {}) => ({ kind, workspace: space.id, prompt: 'hello', agents, ...extra });
+    const chain = await post('/api/agents/relay', body('chain', ['mock', 'mock2', 'mock3']));
+    assert.deepEqual(chain.json.actions.filter((a) => a.kind === 'agent_run').map((a) => [a.role, a.mode]), [['plan', 'plan'], ['work', 'edit'], ['review', 'plan']]);
+    const compare = await post('/api/agents/relay', body('compare', ['mock', 'mock2']));
+    assert.equal(compare.json.risk, 'read');
+    assert.deepEqual(compare.json.actions.filter((a) => a.kind === 'agent_run').map((a) => a.handoff_from), [null, null]);
+    assert.equal((await post('/api/agents/relay', body('compare', ['mock', 'mock']))).status, 422);
+    const full = await post('/api/agents/relay', body('review', ['mock', 'mock2'], { mode: 'full' }));
+    assert.deepEqual([full.json.risk, full.json.needs_confirm], ['danger', true]);
+    assert.equal((await post('/api/execute', { plan_id: full.json.id })).status, 428);
+    const noRead = await post('/api/agents/relay', body('review', ['mock', 'mockarg']));
+    assert.equal(noRead.status, 422);
+    assert.match(noRead.json.error, /read-only/);
+    assert.equal((await post('/api/agents/relay', body('review', ['mock']))).status, 422);
+    assert.equal((await post('/api/agents/relay', body('nonsense', ['mock', 'mock2']))).status, 422);
+    assert.equal((await post('/api/agents/relay', body('review', ['mock', 'mock2'], { path: 'C:/Windows' }))).status, 400);
+  });
 });

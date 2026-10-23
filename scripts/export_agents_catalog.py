@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import agents  # noqa: E402
+import wake  # noqa: E402
 
 HEADER = """'use strict';
 /**
@@ -32,6 +33,16 @@ def render() -> str:
     return HEADER + body
 
 
+def render_wake() -> str:
+    header = HEADER.replace("The coding agents FlowMesh can drive. GENERATED from agents.py", "The wake-word listener script and constants. GENERATED from wake.py")
+    parts = ["const SCRIPT = " + json.dumps(wake.SCRIPT) + ";",
+             "const WAKE_PHRASES = " + json.dumps(wake.WAKE_PHRASES) + ";",
+             "const CONFIDENCE_FLOOR = " + json.dumps(wake.CONFIDENCE_FLOOR) + ";",
+             "module.exports = { SCRIPT, WAKE_PHRASES, CONFIDENCE_FLOOR };"]
+    return header + (chr(10) * 2).join(parts) + chr(10)
+
+
 if __name__ == "__main__":
     (ROOT / "electron" / "agents_catalog.js").write_text(render(), encoding="utf-8", newline="\n")
-    print("wrote electron/agents_catalog.js")
+    (ROOT / "electron" / "wake_script.js").write_text(render_wake(), encoding="utf-8", newline=chr(10))
+    print("wrote electron/agents_catalog.js and electron/wake_script.js")

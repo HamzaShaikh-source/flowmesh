@@ -106,6 +106,16 @@ A process running as the same user can read the loopback token and approve its o
 with MCP tools (see Known limits). Coding agents raise the stakes of that, so the danger modes need a
 second gesture and the feature can be switched off.
 
+## Multi-agent relays and the wake word
+
+- **Relays** (see [AGENTS.md](AGENTS.md)) are ordinary coding tasks in one approved plan. Risk is the
+  highest step's; planning and review steps use read-only modes only; a step runs only if the one before
+  it `returned`; the earlier output reaches the next agent as quoted, bounded, untrusted data.
+- **The wake word** (see [WAKE.md](WAKE.md)) is opt-in per launch, offline, and only wakes: the listening
+  script is fixed and never reports what it heard, the Wispr shortcut is parsed from a strict grammar and
+  sent as key presses only, and nothing is approved by a wake. `FLOWMESH_WAKE=off` disables it. A
+  same-user process holding the token could still turn it on, as with every other loopback route.
+
 ## Messaging templates
 
 The Discord, Slack, Notion and Agent Switch entries on the Tools page are *templates* that fill in a
