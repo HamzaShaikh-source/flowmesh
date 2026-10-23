@@ -41,6 +41,14 @@ class ConnectorContractTest(unittest.TestCase):
         self.assertEqual(python_routes(), expected, "bridge.py route set drifted")
         self.assertEqual(node_routes(), expected, "electron/runtime.js route set drifted")
 
+    def test_both_runtimes_serve_the_sign_in_callback_without_a_token_check_ahead_of_it(self):
+        # The browser returns to this route with no session token, so it must be answered
+        # *before* the generic /api auth check, and by both runtimes.
+        self.assertIn("CALLBACK_PATH", BRIDGE)
+        self.assertIn("CALLBACK_PATH", RUNTIME)
+        self.assertLess(BRIDGE.index("self.wispr_callback()"), BRIDGE.index('if self.path.startswith("/api/") and not self.authorized()'))
+        self.assertLess(RUNTIME.index("pathname === CALLBACK_PATH"), RUNTIME.index("pathname.startsWith('/api/') && !authorized()"))
+
     def test_a_documented_endpoint_exists_in_both_runtimes(self):
         # docs/VERIFICATION.md and README point people at these; documenting a route
         # that does not exist is the same class of error as a false receipt.

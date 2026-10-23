@@ -99,28 +99,40 @@ published MCP server. Both implement the same contract and are pinned together b
 
 ### Flow
 
-1. **Discovery.** `GET https://api.wisprflow.ai/.well-known/oauth-protected-resource`, then
-   the issuer's `/.well-known/oauth-authorization-server`. The resource and issuer must match
-   what was asked for, and every endpoint must be on the issuer's own host over HTTPS.
-2. **Registration.** A public client (`token_endpoint_auth_method: none`, no secret anywhere
-   in the shipped app), registered once and remembered.
-3. **Device sign-in (RFC 8628).** FlowMesh shows a short code and a link; you approve on
-   Wispr's page. FlowMesh never sees a password and listens on no redirect port. It polls at
-   the server's interval and backs off on `slow_down`.
-4. **Refresh.** Only the refresh token and client id are stored (OS credential store or a
-   `0600` file, the same policy as other secrets); access tokens live in memory. A rotated
-   refresh token replaces the old one; a revoked grant reports `expired` and is dropped.
-5. **Notes.** One short MCP session per request over streamable HTTP (`2025-06-18`), JSON or
-   SSE. Only `search_scratchpad_notes` and `get_scratchpad_note` are ever called; any tool
-   whose name mentions dictation, history or transcript is refused by name even if offered.
+Wispr's metadata advertises a device flow, but its device page answers
+`400 Missing external_auth_id` to any third-party code (reproduced 23 Oct 2026), so the first
+version of this connector could not complete. The flow that works, and that FlowMesh now uses, is
+**authorization code with PKCE and a loopback redirect**:
+
+1. **Discovery.** `GET https://api.wisprflow.ai/.well-known/oauth-protected-resource`, then the
+   issuer's `/.well-known/oauth-authorization-server`. The resource and issuer must match what was
+   asked for, every endpoint must be on the issuer's own host over HTTPS, and PKCE `S256` must be
+   offered.
+2. **Registration.** A public client (`token_endpoint_auth_method: none`, no secret anywhere in the
+   shipped app) whose only redirect URI is this app's own `http://127.0.0.1:<port>/oauth/wispr/callback`.
+   Discovery and registration are prefetched in the background, so **Connect** needs no network.
+3. **Sign in.** FlowMesh builds the authorization URL (one-time `state`, `S256` challenge) and opens
+   it. You sign in on Wispr's own page (Google / Apple / Microsoft / email); FlowMesh never sees a
+   password. Wispr sends the browser back to the loopback callback.
+4. **Callback.** The callback needs no session token (a browser navigation cannot carry one); it is
+   protected by the unguessable single-use `state`. A wrong or replayed `state` is ignored without
+   disturbing a sign-in in progress. The code is exchanged with the PKCE verifier, the page shows a
+   one-sentence result under a locked-down CSP, and the code is never written to the request log.
+5. **Refresh.** Only the refresh token and client id are stored (OS credential store or a `0600`
+   file); access tokens live in memory. A rotated refresh token replaces the old one; a revoked
+   grant reports `expired` and is dropped.
+6. **Notes.** One short MCP session per request over streamable HTTP (`2025-06-18`), JSON or SSE.
+   Only `search_scratchpad_notes` and `get_scratchpad_note` are ever called; any tool whose name
+   mentions dictation, history or transcript is refused by name even if offered.
 
 ### Endpoints (both runtimes; all need the session token)
 
 | Endpoint | Answers |
 | --- | --- |
-| `GET /api/wispr/account` | `disconnected` / `pending` (with the code to show) / `connected` |
-| `POST /api/wispr/account/connect` | starts sign-in; returns the user code and link, never the device code |
-| `POST /api/wispr/account/poll` | advances sign-in; respects the server interval |
+| `GET /api/wispr/account` | `disconnected` / `pending` (with the URL to open) / `connected` / `denied` / `expired` |
+| `GET /oauth/wispr/callback` | where Wispr returns the browser; no token, guarded by `state` |
+| `POST /api/wispr/account/connect` | starts sign-in; returns the Wispr URL to open (never the PKCE verifier) |
+| `POST /api/wispr/account/poll` | current sign-in state (local only, no network) |
 | `POST /api/wispr/account/disconnect` | forgets tokens on this machine (Wispr keeps its own record of the grant) |
 | `GET /api/wispr/account/notes` | titles and dates only |
 | `POST /api/wispr/account/note` | `{note_id}` and nothing else; returns that note's text, capped at 4000 characters |
@@ -140,8 +152,8 @@ note cannot do more than a registered routine, and only after you read the plan.
 
 | Claim | Evidence |
 | --- | --- |
-| Discovery, registration and device authorization work against Wispr's **real** servers | Ran `WisprAccount().begin()` from this repository against `api.wisprflow.ai` and `mcp-auth.wisprflow.com` with an isolated config: it returned a real user code and `https://mcp-auth.wisprflow.com/device` link. Nothing was approved; the code expired unused. |
-| The full protocol (pending → connected, rotation, revocation, SSE, hostile metadata, tool allow-list, no token in any response) | 21 Python tests (`tests/test_wispr_account.py`, plus two new route/allow-list parity checks) and 15 Node tests (`electron/test/wispr_account.test.js`) against a protocol-faithful loopback mock |
+| Discovery, registration and the authorization redirect work against Wispr's **real** servers; Wispr's login page loads | Ran `WisprAccount().begin()` from this repository against `api.wisprflow.ai` and `mcp-auth.wisprflow.com` with an isolated config: registered a loopback client, built the PKCE URL, and Wispr's `/authorize` redirected to its real login page ("Log in to Flow"). Nobody signed in. The earlier device-flow attempt reached the device page and failed with `Missing external_auth_id`, which is why the flow changed. |
+| The full protocol (PKCE exchange, forged/replayed/declined/expired callbacks, rotation, revocation, SSE, hostile metadata, tool allow-list, no secret in any response or log) | 29 Python tests (`tests/test_wispr_account.py`) and 19 Node tests (`electron/test/wispr_account.test.js`) against a protocol-faithful loopback mock |
 | The UI journey connect → code → connected → notes → plan | Driven in a browser against the real bridge pointed at the mock |
 | **Token exchange after a human approves, and the real tool responses** | **Not verified.** It needs the owner's Wispr login. Tool argument and response shapes follow another public project's usage of the same server and are filtered through each tool's own `inputSchema`; if Wispr's shape differs, expect a clear `bad_response`/`unsupported` message, not a silent empty list. |
 

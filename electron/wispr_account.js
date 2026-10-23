@@ -4,8 +4,9 @@
  *
  * Port of wispr_account.py; read that file's header for the full rationale. The
  * rules are the same and are enforced here, not promised:
- *   - device flow only (the user types a code on Wispr's page; no password, no
- *     redirect listener), public client with no secret;
+ *   - browser sign-in with PKCE and a loopback callback (no password), public client
+ *     with no secret. Wispr advertises a device flow, but its device page rejects
+ *     third-party codes ("Missing external_auth_id"), so this is the flow that works;
  *   - only the Scratchpad note tools are ever called, and anything whose name
  *     mentions dictation, history or transcripts is refused by name;
  *   - Wispr's text is untrusted: stripped, capped, and only ever placed in the
@@ -15,9 +16,13 @@
  *     endpoint named by discovery must sit on the issuer's own host.
  */
 
+const crypto = require('node:crypto');
+
 const RESOURCE = 'https://api.wisprflow.ai/connect/mcp';
 const SCOPE = 'openid offline_access';
-const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
+const CALLBACK_PATH = '/oauth/wispr/callback';
+const SIGN_IN_SECONDS = 600;
+const REQUEST_TIMEOUT_MS = 10000;
 const MCP_PROTOCOL = '2025-06-18';
 const BLOB = 'wispr_account';
 
@@ -27,8 +32,6 @@ const FORBIDDEN_TOOL = /dictation|history|transcript/i;
 
 const MAX_BODY = 1_000_000;
 const REFRESH_SKEW_SECONDS = 120;
-const SLOW_DOWN_STEP_SECONDS = 5;
-const DEFAULT_POLL_SECONDS = 5;
 const MAX_NOTE_CHARS = 4000;
 const MAX_TITLE_CHARS = 120;
 const NOTE_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -52,6 +55,9 @@ function createAccount({ store, resource = RESOURCE, loopbackHttp = false, clock
   let meta = null;
   let pending = null;
   let access = null; // { token, expiresAt }
+  let outcome = null;
+  const clients = new Map();
+  const registering = new Map();
 
   function checkUrl(url) {
     let parsed;
@@ -77,7 +83,7 @@ function createAccount({ store, resource = RESOURCE, loopbackHttp = false, clock
       out['Content-Type'] = 'application/json';
     }
     try {
-      const response = await fetchImpl(url, { method, headers: out, body, redirect: 'manual', signal: AbortSignal.timeout(20000) });
+      const response = await fetchImpl(url, { method, headers: out, body, redirect: 'manual', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
       const text = (await response.text()).slice(0, MAX_BODY);
       return { status: response.status, headers: response.headers, text };
     } catch {
@@ -121,7 +127,7 @@ function createAccount({ store, resource = RESOURCE, loopbackHttp = false, clock
     }
     const host = new URL(issuer).host;
     const endpoints = {};
-    for (const key of ['token_endpoint', 'registration_endpoint', 'device_authorization_endpoint']) {
+    for (const key of ['token_endpoint', 'registration_endpoint', 'authorization_endpoint']) {
       const value = document[key];
       let sameHost = false;
       try {
@@ -136,21 +142,38 @@ function createAccount({ store, resource = RESOURCE, loopbackHttp = false, clock
       endpoints[key] = value;
     }
     const grants = document.grant_types_supported;
-    if (Array.isArray(grants) && !grants.includes(DEVICE_GRANT)) {
-      throw new WisprAccountError('unsupported', "Wispr's sign-in service does not offer device sign-in.");
+    if (Array.isArray(grants) && !grants.includes('authorization_code')) {
+      throw new WisprAccountError('unsupported', "Wispr's sign-in service does not offer browser sign-in.");
+    }
+    const methods = document.code_challenge_methods_supported;
+    if (Array.isArray(methods) && !methods.includes('S256')) {
+      throw new WisprAccountError('unsupported', "Wispr's sign-in service does not support PKCE.");
     }
     meta = { issuer, ...endpoints };
     return meta;
   }
 
-  async function clientId(found) {
-    const blob = store.loadBlob(BLOB);
-    if (blob.issuer === found.issuer && typeof blob.client_id === 'string' && blob.client_id) return blob.client_id;
+  /** A public client for this exact redirect URI, registered once per launch. */
+  async function register(found, redirectUri) {
+    if (clients.has(redirectUri)) return clients.get(redirectUri);
+    // One registration at a time: the background prefetch and a click on Connect can arrive
+    // together, and both must end up with the same client.
+    if (registering.has(redirectUri)) return registering.get(redirectUri);
+    const attempt = registerOnce(found, redirectUri);
+    registering.set(redirectUri, attempt);
+    try {
+      return await attempt;
+    } finally {
+      registering.delete(redirectUri);
+    }
+  }
+
+  async function registerOnce(found, redirectUri) {
     const { status, text } = await request('POST', found.registration_endpoint, {
       payload: {
         client_name: 'FlowMesh',
-        redirect_uris: ['http://127.0.0.1/flowmesh-unused'],
-        grant_types: [DEVICE_GRANT, 'refresh_token'],
+        redirect_uris: [redirectUri],
+        grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
         token_endpoint_auth_method: 'none',
         scope: SCOPE,
@@ -160,57 +183,123 @@ function createAccount({ store, resource = RESOURCE, loopbackHttp = false, clock
     if (![200, 201].includes(status) || typeof answer.client_id !== 'string' || !answer.client_id) {
       throw new WisprAccountError('unsupported', 'Wispr declined to register FlowMesh as an app.');
     }
-    store.saveBlob(BLOB, { issuer: found.issuer, client_id: answer.client_id });
+    clients.set(redirectUri, answer.client_id);
     return answer.client_id;
   }
 
-  const publicPending = (p) => ({
-    user_code: p.user_code,
-    verification_uri: p.verification_uri,
-    verification_uri_complete: p.verification_uri_complete,
-    expires_in: p.expires_in,
-    interval: p.interval,
-  });
-  const WAITING = "Waiting for you to approve FlowMesh on Wispr's page.";
-  const CONNECTED = 'Signed in to Wispr Flow. Scratchpad notes are readable.';
+  function checkRedirect(redirectUri) {
+    let parsed;
+    try {
+      parsed = new URL(redirectUri);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || parsed.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(parsed.hostname) || !parsed.port
+        || parsed.pathname !== CALLBACK_PATH || parsed.search || parsed.hash) {
+      throw new WisprAccountError('bad_request', "The sign-in return address must be this app's own loopback callback.");
+    }
+  }
+
+  /** Warm discovery and registration in the background so Connect is instant. */
+  function prefetch(redirectUri) {
+    (async () => {
+      try {
+        checkRedirect(redirectUri);
+        await register(await discover(), redirectUri);
+      } catch {
+        /* begin() reports a real error when the person actually clicks Connect */
+      }
+    })();
+  }
+
+  const b64url = (buffer) => buffer.toString('base64url');
 
   function status() {
-    if (pending && clock() >= pending.expires_at) pending = null;
-    if (pending) return { state: 'pending', detail: WAITING, ...publicPending(pending) };
+    if (outcome) {
+      const result = outcome;
+      outcome = null;
+      return result;
+    }
+    if (pending && clock() >= pending.expires_at) {
+      pending = null;
+      return { state: 'expired', detail: 'The sign-in link expired. Start again.' };
+    }
+    if (pending) {
+      return {
+        state: 'pending', detail: "Finish signing in on Wispr's page. This updates by itself.",
+        authorization_url: pending.url, expires_in: Math.max(0, Math.floor(pending.expires_at - clock())),
+      };
+    }
     if (store.loadBlob(BLOB).refresh_token) return { state: 'connected', detail: CONNECTED };
     return { state: 'disconnected', detail: 'Not connected. Sign in to read your Scratchpad notes.' };
   }
 
-  async function begin() {
+  /** Prepare a sign-in. Returns the Wispr URL the person must open. */
+  async function begin(redirectUri) {
+    checkRedirect(redirectUri);
     const found = await discover();
-    const id = await clientId(found);
-    const { status: code, text } = await request('POST', found.device_authorization_endpoint, {
-      form: { client_id: id, scope: SCOPE, resource },
-    });
-    const answer = parseJson(text);
-    if (code !== 200) throw new WisprAccountError('denied', 'Wispr refused to start sign-in.');
-    const { device_code: deviceCode, user_code: userCode, verification_uri: uri } = answer;
-    if (![deviceCode, userCode, uri].every((v) => typeof v === 'string' && v)) {
-      throw new WisprAccountError('bad_response', "Wispr's sign-in answer was incomplete.");
-    }
-    const complete = typeof answer.verification_uri_complete === 'string' ? answer.verification_uri_complete : '';
-    [uri, complete].filter(Boolean).forEach(checkUrl);
-    const expiresIn = Number(answer.expires_in) || 600;
-    const interval = Math.max(1, Number(answer.interval) || DEFAULT_POLL_SECONDS);
-    const now = clock();
-    pending = {
-      device_code: deviceCode,
-      client_id: id,
-      user_code: cleanText(userCode, 32),
-      verification_uri: uri,
-      verification_uri_complete: complete,
-      expires_in: expiresIn,
-      interval,
-      expires_at: now + expiresIn,
-      next_poll: now + interval,
-    };
-    return { state: 'pending', ...publicPending(pending) };
+    const id = await register(found, redirectUri);
+    const verifier = b64url(crypto.randomBytes(32));
+    const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
+    const state = b64url(crypto.randomBytes(24));
+    const url = `${found.authorization_endpoint}?${new URLSearchParams({
+      response_type: 'code', client_id: id, redirect_uri: redirectUri, scope: SCOPE, state,
+      code_challenge: challenge, code_challenge_method: 'S256', resource,
+    })}`;
+    outcome = null;
+    pending = { state, verifier, client_id: id, redirect_uri: redirectUri, url, expires_at: clock() + SIGN_IN_SECONDS };
+    return status();
   }
+
+  /** What the page polls while the person signs in: local state only, no network. */
+  async function poll() {
+    return status();
+  }
+
+  /** Handle the browser coming back to the loopback callback. Returns { ok, message }. */
+  async function complete(code, state, error = '') {
+    const current = pending;
+    const given = Buffer.from(String(state || ''));
+    const want = Buffer.from(current ? current.state : '');
+    if (!current || given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
+      // Not ours (or a replay): ignore it without disturbing a sign-in in progress.
+      return { ok: false, message: 'This sign-in link is not valid any more. Start again from FlowMesh.' };
+    }
+    pending = null; // single use, whatever happens next
+    if (clock() >= current.expires_at) {
+      outcome = { state: 'expired', detail: 'The sign-in link expired. Start again.' };
+      return { ok: false, message: 'The sign-in link expired. Start again from FlowMesh.' };
+    }
+    if (error) {
+      outcome = { state: 'denied', detail: "Sign-in was declined on Wispr's page." };
+      return { ok: false, message: 'Sign-in was declined.' };
+    }
+    if (typeof code !== 'string' || !code || code.length > 2048) {
+      outcome = { state: 'denied', detail: 'Wispr did not return a sign-in code.' };
+      return { ok: false, message: 'Wispr did not return a sign-in code.' };
+    }
+    try {
+      const found = await discover();
+      const { status: httpStatus, text } = await request('POST', found.token_endpoint, {
+        form: {
+          grant_type: 'authorization_code', client_id: current.client_id, code, redirect_uri: current.redirect_uri,
+          code_verifier: current.verifier, resource,
+        },
+      });
+      const answer = parseJson(text);
+      if (httpStatus !== 200 || typeof answer.access_token !== 'string') {
+        throw new WisprAccountError('denied', 'Wispr refused the sign-in.');
+      }
+      keepTokens(found, current.client_id, answer);
+    } catch (error_) {
+      if (!(error_ instanceof WisprAccountError)) throw error_;
+      outcome = { state: 'denied', detail: error_.userMessage };
+      return { ok: false, message: error_.userMessage };
+    }
+    return { ok: true, message: 'Signed in. You can close this tab and return to FlowMesh.' };
+  }
+
+  const CONNECTED = 'Signed in to Wispr Flow. Scratchpad notes are readable.';
 
   function keepTokens(found, id, answer) {
     let refresh = answer.refresh_token;
@@ -221,43 +310,6 @@ function createAccount({ store, resource = RESOURCE, loopbackHttp = false, clock
     store.saveBlob(BLOB, { issuer: found.issuer, client_id: id, refresh_token: refresh });
     const lifetime = typeof answer.expires_in === 'number' && answer.expires_in > 0 ? answer.expires_in : 300;
     access = { token: answer.access_token, expiresAt: clock() + lifetime };
-  }
-
-  async function poll() {
-    if (!pending) return status();
-    const now = clock();
-    if (now >= pending.expires_at) {
-      pending = null;
-      return { state: 'expired', detail: 'The sign-in code expired. Start again.' };
-    }
-    if (now < pending.next_poll) return { state: 'pending', detail: WAITING, ...publicPending(pending) };
-    const found = await discover();
-    const { status: code, text } = await request('POST', found.token_endpoint, {
-      form: { grant_type: DEVICE_GRANT, client_id: pending.client_id, device_code: pending.device_code, resource },
-    });
-    const answer = parseJson(text);
-    if (code === 200 && typeof answer.access_token === 'string') {
-      const id = pending.client_id;
-      pending = null;
-      keepTokens(found, id, answer);
-      return { state: 'connected', detail: CONNECTED };
-    }
-    if (answer.error === 'authorization_pending') {
-      pending.next_poll = now + pending.interval;
-    } else if (answer.error === 'slow_down') {
-      pending.interval += SLOW_DOWN_STEP_SECONDS;
-      pending.next_poll = now + pending.interval;
-    } else if (answer.error === 'access_denied') {
-      pending = null;
-      return { state: 'denied', detail: "Sign-in was declined on Wispr's page." };
-    } else if (answer.error === 'expired_token') {
-      pending = null;
-      return { state: 'expired', detail: 'The sign-in code expired. Start again.' };
-    } else {
-      pending = null;
-      throw new WisprAccountError('denied', 'Wispr refused the sign-in.');
-    }
-    return { state: 'pending', detail: WAITING, ...publicPending(pending) };
   }
 
   function disconnect() {
@@ -425,7 +477,7 @@ function createAccount({ store, resource = RESOURCE, loopbackHttp = false, clock
     return { id: noteId, text, truncated: body.trim().length > MAX_NOTE_CHARS };
   }
 
-  return { status, begin, poll, disconnect, listNotes, getNote };
+  return { status, begin, poll, complete, prefetch, disconnect, listNotes, getNote };
 }
 
 // How a connector failure maps onto HTTP. 401 is deliberately absent: it means "bad
@@ -435,4 +487,4 @@ const ACCOUNT_HTTP = {
   rate_limited: 429, unsupported: 422, empty: 422, bad_request: 400,
 };
 
-module.exports = { createAccount, WisprAccountError, ACCOUNT_HTTP, cleanText, RESOURCE };
+module.exports = { createAccount, WisprAccountError, ACCOUNT_HTTP, cleanText, RESOURCE, CALLBACK_PATH };

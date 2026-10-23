@@ -10,17 +10,19 @@ on Wispr's own page, FlowMesh holds a refresh token, and notes arrive over HTTPS
 
 Hard rules, each enforced below rather than promised:
 
-1. **Device flow only.** The user types a short code on Wispr's page; FlowMesh never
-   sees a password and needs no redirect listener.
-2. **Public client, no secret.** PKCE-less device grant, `token_endpoint_auth_method`
-   is `none`; nothing sensitive is embedded in the shipped app.
+1. **Browser sign-in with PKCE.** The user signs in on Wispr's own page and is sent back
+   to a loopback URL on this machine; FlowMesh never sees a password. (Wispr advertises a
+   device flow, but its device page rejects third-party codes with "Missing
+   external_auth_id", so authorization code + PKCE is the flow that actually works.)
+2. **Public client, no secret.** `token_endpoint_auth_method` is `none` and the code is
+   bound to a one-time verifier; nothing sensitive is embedded in the shipped app.
 3. **Allow-listed tools.** Only the Scratchpad note tools are ever called. Anything
    whose name mentions dictation, history or transcripts is refused by name.
 4. **Wispr's text is untrusted.** It is stripped of control characters, length-capped,
    and only ever placed in the command box for the user to read. It is never planned
    or executed without the normal plan-approve-run step.
 5. **Tokens never leave this module.** Callers get state and note text, never a token,
-   device code or client id.
+   PKCE verifier or authorization code.
 6. **No redirects, HTTPS only** (loopback HTTP is accepted solely for tests), and
    every endpoint named by discovery must sit on the issuer's own host.
 
@@ -30,8 +32,12 @@ docs/WISPR-CONNECTOR.md for exactly what was and was not exercised.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import re
+import secrets
 import threading
 import time
 import urllib.error
@@ -42,7 +48,9 @@ import flowmesh_config
 
 RESOURCE = "https://api.wisprflow.ai/connect/mcp"
 SCOPE = "openid offline_access"
-DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+CALLBACK_PATH = "/oauth/wispr/callback"
+SIGN_IN_SECONDS = 600
+REQUEST_TIMEOUT = 10
 MCP_PROTOCOL = "2025-06-18"
 BLOB = "wispr_account"
 
@@ -52,8 +60,6 @@ FORBIDDEN_TOOL = re.compile(r"dictation|history|transcript", re.IGNORECASE)
 
 MAX_BODY = 1_000_000
 REFRESH_SKEW_SECONDS = 120
-SLOW_DOWN_STEP_SECONDS = 5
-DEFAULT_POLL_SECONDS = 5
 MAX_NOTE_CHARS = 4000
 MAX_TITLE_CHARS = 120
 NOTE_ID = re.compile(r"^[A-Za-z0-9_.:\-]{1,128}$")
@@ -93,6 +99,9 @@ class WisprAccount:
         self._meta: dict | None = None
         self._pending: dict | None = None
         self._access: tuple[str, float] | None = None
+        self._clients: dict[str, str] = {}
+        self._register_lock = threading.Lock()
+        self._outcome: dict | None = None
 
     # ---- transport --------------------------------------------------------
 
@@ -105,7 +114,7 @@ class WisprAccount:
             return
         raise WisprAccountError("bad_response", "Wispr returned an endpoint that is not HTTPS.")
 
-    def _request(self, method, url, *, form=None, payload=None, headers=None, timeout=20):
+    def _request(self, method, url, *, form=None, payload=None, headers=None, timeout=REQUEST_TIMEOUT):
         self._check_url(url)
         out = {"Accept": "application/json, text/event-stream", "User-Agent": "FlowMesh"}
         data = None
@@ -162,125 +171,134 @@ class WisprAccount:
                 raise WisprAccountError("bad_response", "Wispr's sign-in metadata names a different issuer.")
             host = urlparse(issuer).netloc
             endpoints = {}
-            for key in ("token_endpoint", "registration_endpoint", "device_authorization_endpoint"):
+            for key in ("token_endpoint", "registration_endpoint", "authorization_endpoint"):
                 value = meta.get(key)
                 if not isinstance(value, str) or urlparse(value).netloc != host:
                     raise WisprAccountError("unsupported", f"Wispr's sign-in service does not offer {key.replace('_', ' ')}.")
                 self._check_url(value)
                 endpoints[key] = value
             grants = meta.get("grant_types_supported")
-            if isinstance(grants, list) and DEVICE_GRANT not in grants:
-                raise WisprAccountError("unsupported", "Wispr's sign-in service does not offer device sign-in.")
+            if isinstance(grants, list) and "authorization_code" not in grants:
+                raise WisprAccountError("unsupported", "Wispr's sign-in service does not offer browser sign-in.")
+            methods = meta.get("code_challenge_methods_supported")
+            if isinstance(methods, list) and "S256" not in methods:
+                raise WisprAccountError("unsupported", "Wispr's sign-in service does not support PKCE.")
             self._meta = {"issuer": issuer, **endpoints}
             return self._meta
 
-    def _client_id(self, meta: dict) -> str:
-        blob = flowmesh_config.load_blob(BLOB)
-        if blob.get("issuer") == meta["issuer"] and isinstance(blob.get("client_id"), str) and blob["client_id"]:
-            return blob["client_id"]
-        status, _, body = self._request("POST", meta["registration_endpoint"], payload={
-            "client_name": "FlowMesh",
-            "redirect_uris": ["http://127.0.0.1/flowmesh-unused"],
-            "grant_types": [DEVICE_GRANT, "refresh_token"],
-            "response_types": ["code"],
-            "token_endpoint_auth_method": "none",
-            "scope": SCOPE,
-        })
-        answer = self._json(body)
-        client_id = answer.get("client_id")
-        if status not in (200, 201) or not isinstance(client_id, str) or not client_id:
-            raise WisprAccountError("unsupported", "Wispr declined to register FlowMesh as an app.")
-        flowmesh_config.save_blob(BLOB, {"issuer": meta["issuer"], "client_id": client_id})
-        return client_id
+    def _register(self, meta: dict, redirect_uri: str) -> str:
+        """A public client for this exact redirect URI, registered once per launch."""
+        # One registration at a time: the background prefetch and a click on Connect can
+        # arrive together, and both must end up with the same client.
+        with self._register_lock:
+            known = self._clients.get(redirect_uri)
+            if known:
+                return known
+            status, _, body = self._request("POST", meta["registration_endpoint"], payload={
+                "client_name": "FlowMesh",
+                "redirect_uris": [redirect_uri],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "none",
+                "scope": SCOPE,
+            })
+            answer = self._json(body)
+            client_id = answer.get("client_id")
+            if status not in (200, 201) or not isinstance(client_id, str) or not client_id:
+                raise WisprAccountError("unsupported", "Wispr declined to register FlowMesh as an app.")
+            self._clients[redirect_uri] = client_id
+            return client_id
 
-    # ---- device flow ------------------------------------------------------
+    def _check_redirect(self, redirect_uri: str) -> None:
+        parsed = urlparse(redirect_uri)
+        if (parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"} or not parsed.port
+                or parsed.path != CALLBACK_PATH or parsed.query or parsed.fragment):
+            raise WisprAccountError("bad_request", "The sign-in return address must be this app's own loopback callback.")
+
+    def prefetch(self, redirect_uri: str) -> None:
+        """Warm discovery and registration in the background so Connect is instant."""
+        def work() -> None:
+            try:
+                self._check_redirect(redirect_uri)
+                self._register(self._discover(), redirect_uri)
+            except WisprAccountError:
+                pass  # begin() reports a real error when the person actually clicks Connect
+
+        threading.Thread(target=work, daemon=True).start()
+
+    # ---- browser sign-in --------------------------------------------------
 
     def status(self) -> dict:
         with self._lock:
+            if self._outcome:
+                outcome, self._outcome = self._outcome, None
+                return outcome
             pending = self._pending
             if pending and self._clock() >= pending["expires_at"]:
                 self._pending = pending = None
+                return {"state": "expired", "detail": "The sign-in link expired. Start again."}
             if pending:
-                return {"state": "pending", "detail": "Waiting for you to approve FlowMesh on Wispr's page.",
-                        **self._public_pending(pending)}
+                return {"state": "pending", "detail": "Finish signing in on Wispr's page. This updates by itself.",
+                        "authorization_url": pending["url"],
+                        "expires_in": max(0, int(pending["expires_at"] - self._clock()))}
             blob = flowmesh_config.load_blob(BLOB)
             if blob.get("refresh_token"):
                 return {"state": "connected", "detail": "Signed in to Wispr Flow. Scratchpad notes are readable."}
             return {"state": "disconnected", "detail": "Not connected. Sign in to read your Scratchpad notes."}
 
-    @staticmethod
-    def _public_pending(pending: dict) -> dict:
-        return {key: pending[key] for key in ("user_code", "verification_uri", "verification_uri_complete", "expires_in", "interval")}
-
-    def begin(self) -> dict:
+    def begin(self, redirect_uri: str) -> dict:
+        """Prepare a sign-in. Returns the Wispr URL the person must open."""
+        self._check_redirect(redirect_uri)
+        meta = self._discover()
+        client_id = self._register(meta, redirect_uri)
+        verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        state = secrets.token_urlsafe(24)
+        url = meta["authorization_endpoint"] + "?" + urlencode({
+            "response_type": "code", "client_id": client_id, "redirect_uri": redirect_uri, "scope": SCOPE,
+            "state": state, "code_challenge": challenge, "code_challenge_method": "S256", "resource": self.resource,
+        })
         with self._lock:
-            meta = self._discover()
-            client_id = self._client_id(meta)
-            status, _, body = self._request("POST", meta["device_authorization_endpoint"], form={
-                "client_id": client_id, "scope": SCOPE, "resource": self.resource,
-            })
-            answer = self._json(body)
-            if status != 200:
-                raise WisprAccountError("denied", "Wispr refused to start sign-in.")
-            device_code, user_code = answer.get("device_code"), answer.get("user_code")
-            uri = answer.get("verification_uri")
-            if not all(isinstance(v, str) and v for v in (device_code, user_code, uri)):
-                raise WisprAccountError("bad_response", "Wispr's sign-in answer was incomplete.")
-            complete = answer.get("verification_uri_complete")
-            complete = complete if isinstance(complete, str) else ""
-            for link in (uri, complete):
-                if link:
-                    self._check_url(link)
-            expires_in = int(answer.get("expires_in") or 600)
-            interval = max(1, int(answer.get("interval") or DEFAULT_POLL_SECONDS))
-            now = self._clock()
-            self._pending = {
-                "device_code": device_code, "client_id": client_id, "issuer": meta["issuer"],
-                "user_code": clean_text(user_code, 32), "verification_uri": uri,
-                "verification_uri_complete": complete, "expires_in": expires_in,
-                "interval": interval, "expires_at": now + expires_in, "next_poll": now + interval,
-            }
-            return {"state": "pending", **self._public_pending(self._pending)}
+            self._outcome = None
+            self._pending = {"state": state, "verifier": verifier, "client_id": client_id, "redirect_uri": redirect_uri,
+                             "url": url, "expires_at": self._clock() + SIGN_IN_SECONDS}
+        return self.status()
 
     def poll(self) -> dict:
+        """What the page polls while the person signs in: local state only, no network."""
+        return self.status()
+
+    def complete(self, code: str, state: str, error: str = "") -> tuple[bool, str]:
+        """Handle the browser coming back to the loopback callback. Returns (ok, sentence)."""
         with self._lock:
             pending = self._pending
-            if not pending:
-                return self.status()
-            now = self._clock()
-            if now >= pending["expires_at"]:
-                self._pending = None
-                return {"state": "expired", "detail": "The sign-in code expired. Start again."}
-            if now < pending["next_poll"]:
-                return {"state": "pending", "detail": "Waiting for you to approve FlowMesh on Wispr's page.",
-                        **self._public_pending(pending)}
-            meta = self._discover()
-            status, _, body = self._request("POST", meta["token_endpoint"], form={
-                "grant_type": DEVICE_GRANT, "client_id": pending["client_id"],
-                "device_code": pending["device_code"], "resource": self.resource,
-            })
-            answer = self._json(body)
-            if status == 200 and isinstance(answer.get("access_token"), str):
-                self._pending = None
+            if not pending or not isinstance(state, str) or not hmac.compare_digest(state, pending["state"]):
+                # Not ours (or a replay): ignore it without disturbing a sign-in in progress.
+                return False, "This sign-in link is not valid any more. Start again from FlowMesh."
+            self._pending = None  # single use, whatever happens next
+            if self._clock() >= pending["expires_at"]:
+                self._outcome = {"state": "expired", "detail": "The sign-in link expired. Start again."}
+                return False, "The sign-in link expired. Start again from FlowMesh."
+            if error:
+                self._outcome = {"state": "denied", "detail": "Sign-in was declined on Wispr's page."}
+                return False, "Sign-in was declined."
+            if not isinstance(code, str) or not code or len(code) > 2048:
+                self._outcome = {"state": "denied", "detail": "Wispr did not return a sign-in code."}
+                return False, "Wispr did not return a sign-in code."
+            try:
+                meta = self._discover()
+                status, _, body = self._request("POST", meta["token_endpoint"], form={
+                    "grant_type": "authorization_code", "client_id": pending["client_id"], "code": code,
+                    "redirect_uri": pending["redirect_uri"], "code_verifier": pending["verifier"], "resource": self.resource,
+                })
+                answer = self._json(body)
+                if status != 200 or not isinstance(answer.get("access_token"), str):
+                    raise WisprAccountError("denied", "Wispr refused the sign-in.")
                 self._keep_tokens(meta, pending["client_id"], answer)
-                return {"state": "connected", "detail": "Signed in to Wispr Flow. Scratchpad notes are readable."}
-            error = answer.get("error")
-            if error == "authorization_pending":
-                pending["next_poll"] = now + pending["interval"]
-            elif error == "slow_down":
-                pending["interval"] += SLOW_DOWN_STEP_SECONDS
-                pending["next_poll"] = now + pending["interval"]
-            elif error == "access_denied":
-                self._pending = None
-                return {"state": "denied", "detail": "Sign-in was declined on Wispr's page."}
-            elif error == "expired_token":
-                self._pending = None
-                return {"state": "expired", "detail": "The sign-in code expired. Start again."}
-            else:
-                self._pending = None
-                raise WisprAccountError("denied", "Wispr refused the sign-in.")
-            return {"state": "pending", "detail": "Waiting for you to approve FlowMesh on Wispr's page.",
-                    **self._public_pending(pending)}
+            except WisprAccountError as exc:
+                self._outcome = {"state": "denied", "detail": exc.message}
+                return False, exc.message
+            return True, "Signed in. You can close this tab and return to FlowMesh."
 
     def disconnect(self) -> dict:
         """Forget the tokens on this machine. Wispr keeps its own record of the grant."""

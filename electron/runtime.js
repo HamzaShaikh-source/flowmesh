@@ -23,7 +23,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const core = require('../web/core.js');
 const { VERSION, createStore } = require('./config.js');
 const wispr = require('./wispr.js');
-const { createAccount, WisprAccountError, ACCOUNT_HTTP } = require('./wispr_account.js');
+const { createAccount, WisprAccountError, ACCOUNT_HTTP, CALLBACK_PATH } = require('./wispr_account.js');
 const { McpError } = require('./mcp_client.js');
 const { createManager } = require('./mcp_registry.js');
 const { PRESETS } = require('./mcp_presets.js');
@@ -853,7 +853,30 @@ function createRuntime(options = {}) {
       return origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
     };
 
+    const callbackUrl = () => `http://127.0.0.1:${server.address().port}${CALLBACK_PATH}`;
+
     if (request.method === 'GET') {
+      if (pathname === CALLBACK_PATH) {
+        // Where Wispr's page sends the browser back. Unauthenticated by necessity: it is
+        // protected by the one-time, unguessable `state` that only a sign-in started from
+        // this app holds, and it reveals a sentence, never a token.
+        const query = new URL(request.url, 'http://127.0.0.1').searchParams;
+        account.complete(query.get('code') || '', query.get('state') || '', query.get('error') || '').then(({ ok, message }) => {
+          const escape = (text) => String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+          const page = Buffer.from(
+            '<!doctype html><meta charset=utf-8><title>FlowMesh</title>' +
+            '<body style="font:16px system-ui;background:#080e0c;color:#e9f0e5;display:grid;place-items:center;height:100vh;margin:0">' +
+            `<main style="max-width:30em;padding:2em;text-align:center"><h1 style="font-weight:500">${ok ? 'Connected' : 'Not connected'}</h1>` +
+            `<p>${escape(message)}</p></main></body>`);
+          response.writeHead(ok ? 200 : 400, {
+            'Content-Type': 'text/html; charset=utf-8', 'Content-Length': page.length, 'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+          });
+          response.end(page);
+        }, () => sendJson(response, { error: 'Internal error' }, 500));
+        return;
+      }
       if (pathname.startsWith('/api/') && !authorized()) {
         sendJson(response, { error: 'Missing or invalid session token' }, 401);
         return;
@@ -869,7 +892,10 @@ function createRuntime(options = {}) {
         return void mcp.catalog().then((catalog) => sendJson(response, catalog), () => sendJson(response, { error: 'Internal error' }, 500));
       }
       if (pathname === '/api/mcp/presets') return sendJson(response, { presets: PRESETS });
-      if (pathname === '/api/wispr/account') return sendJson(response, account.status());
+      if (pathname === '/api/wispr/account') {
+        account.prefetch(callbackUrl());
+        return sendJson(response, account.status());
+      }
       if (pathname === '/api/wispr/account/notes') {
         return void accountCall(response, async () => ({ notes: await account.listNotes() }));
       }
@@ -935,7 +961,7 @@ function createRuntime(options = {}) {
         return;
       }
       if (pathname.startsWith('/api/mcp/')) return void (await mcpPost(pathname, body, response));
-      if (pathname === '/api/wispr/account/connect') return void (await accountCall(response, () => account.begin()));
+      if (pathname === '/api/wispr/account/connect') return void (await accountCall(response, () => account.begin(callbackUrl())));
       if (pathname === '/api/wispr/account/poll') return void (await accountCall(response, () => account.poll()));
       if (pathname === '/api/wispr/account/disconnect') return void (await accountCall(response, async () => account.disconnect()));
       if (pathname === '/api/wispr/account/note') {

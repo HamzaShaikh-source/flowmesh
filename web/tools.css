@@ -329,3 +329,17 @@ dialog::backdrop { background: rgba(4, 8, 6, .72); backdrop-filter: blur(6px); }
 }
 
 .note-list, .sheet, .note-peek pre { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+
+/* ---------- busy buttons and the sign-in prompt ---------- */
+
+.device-code .code:empty { display: none; }
+.button[aria-busy="true"] { opacity: .75; cursor: progress; }
+.button[aria-busy="true"]::after {
+  content: ''; width: 12px; height: 12px; margin-left: 4px; border: 2px solid currentColor;
+  border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite;
+}
+.server-empty-busy { color: var(--ink-dim); }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .button[aria-busy="true"]::after { animation: none !important; border-right-color: currentColor; }
+}

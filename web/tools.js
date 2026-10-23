@@ -180,6 +180,7 @@
       renderTools();
       return;
     }
+    setLoading(true);
     UI.get('/api/mcp/servers').then(function (data) {
       T.servers = data.servers || [];
       renderServers();
@@ -188,9 +189,23 @@
       if (!data) return;
       T.tools = data.tools || [];
       T.errors = data.errors || {};
+      setLoading(false);
       renderServers();
       renderTools();
-    }).catch(function (err) { UI.toast(UI.humanError(err.message)); });
+    }).catch(function (err) { setLoading(false); UI.toast(UI.humanError(err.message)); });
+  }
+
+  /* Starting a server can take a while (a downloaded one fetches packages on first run), so
+     say so instead of showing an empty panel. */
+  function setLoading(on) {
+    var enabled = T.servers.filter(function (s) { return s.enabled; }).length;
+    $('serversPanel').setAttribute('aria-busy', on ? 'true' : 'false');
+    if (!on) { $('serverEmpty').classList.remove('server-empty-busy'); return; }
+    if (!enabled && T.servers.length) return;
+    $('serverEmpty').hidden = false;
+    $('serverEmpty').classList.add('server-empty-busy');
+    $('serverEmpty').textContent = 'Starting your servers… the first run of a downloaded server can take a minute.';
+    $('toolEmpty').textContent = 'Waiting for servers to list their tools…';
   }
 
   function toolCount(serverId) {
@@ -201,6 +216,7 @@
     var list = $('serverList');
     list.replaceChildren();
     $('serverEmpty').hidden = T.servers.length > 0;
+    if (!T.servers.length) $('serverEmpty').textContent = 'No servers connected yet. Pick a template or add your own.';
     T.servers.forEach(function (server, index) {
       var item = el('li', 'server-card');
       item.style.animationDelay = (index * 60) + 'ms';

@@ -9,6 +9,7 @@ expire, and are consumed once; the client can never submit an action payload.
 from __future__ import annotations
 
 import hashlib
+import html
 import hmac
 import json
 import os
@@ -30,7 +31,8 @@ from flowmesh_config import VERSION, public_settings, save, secret, settings
 from planner import FORBIDDEN, WORKFLOWS, actions_for, command_is_usable, local_route, other_intents
 import atexit
 import wispr_source
-from wispr_account import ACCOUNT, WisprAccountError
+from wispr_account import ACCOUNT, CALLBACK_PATH, WisprAccountError
+from urllib.parse import parse_qs
 from mcp_client import McpError
 import llm_planner
 from mcp_registry import MANAGER, public_tool
@@ -717,7 +719,9 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         # PyInstaller windowed builds have no stderr stream.
         if sys.stderr is not None:
-            super().log_message(format, *args)
+            # The sign-in callback carries a one-time code in its query string; never log it.
+            safe = tuple(a.split("?", 1)[0] + (" ?[redacted]" if "?" in a else "") if isinstance(a, str) and CALLBACK_PATH in a else a for a in args)
+            super().log_message(format, *safe)
 
     def end_headers(self) -> None:
         if not self.path.startswith("/api/"):
@@ -779,6 +783,32 @@ class Handler(SimpleHTTPRequestHandler):
         except McpError as exc:
             self.send_json({"error": exc.message, "kind": exc.kind}, 502)
 
+    def callback_url(self) -> str:
+        return f"http://127.0.0.1:{self.server.server_port}{CALLBACK_PATH}"
+
+    def wispr_callback(self) -> None:
+        """Where Wispr's page sends the browser back. Unauthenticated by necessity: it is
+        protected by the one-time, unguessable `state` that only a sign-in started from this
+        app holds. It never reveals tokens, only a sentence."""
+        query = parse_qs(urlparse(self.path).query)
+        first = lambda key: (query.get(key) or [""])[0]
+        ok, message = ACCOUNT.complete(first("code"), first("state"), first("error"))
+        page = (
+            "<!doctype html><meta charset=utf-8><title>FlowMesh</title>"
+            "<body style=\"font:16px system-ui;background:#080e0c;color:#e9f0e5;display:grid;place-items:center;height:100vh;margin:0\">"
+            f"<main style=\"max-width:30em;padding:2em;text-align:center\"><h1 style=\"font-weight:500\">{'Connected' if ok else 'Not connected'}</h1>"
+            f"<p>{html.escape(message)}</p></main></body>"
+        ).encode()
+        self.send_response(200 if ok else 400)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(page)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+        self.end_headers()
+        self.wfile.write(page)
+
     def account_call(self, action) -> None:
         try:
             self.send_json(action())
@@ -827,6 +857,9 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.trusted_host():
             self.send_json({"error": "Invalid host"}, 403)
             return
+        if urlparse(self.path).path == CALLBACK_PATH:
+            self.wispr_callback()
+            return
         if self.path.startswith("/api/") and not self.authorized():
             self.send_json({"error": "Missing or invalid session token"}, 401)
             return
@@ -865,6 +898,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"presets": mcp_presets.PRESETS})
             return
         if self.path == "/api/wispr/account":
+            ACCOUNT.prefetch(self.callback_url())
             self.send_json(ACCOUNT.status())
             return
         if self.path == "/api/wispr/account/notes":
@@ -914,7 +948,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.mcp_post(body)
             return
         if self.path == "/api/wispr/account/connect":
-            self.account_call(ACCOUNT.begin)
+            self.account_call(lambda: ACCOUNT.begin(self.callback_url()))
             return
         if self.path == "/api/wispr/account/poll":
             self.account_call(ACCOUNT.poll)
