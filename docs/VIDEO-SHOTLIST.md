@@ -37,3 +37,18 @@ Everything marked **[YOU]** can only be recorded by you: your voice, your screen
 1. Check duration ≤ 120 s (ffprobe or the player).
 2. Upload unlisted/public as the form requires; keep the link alive through judging.
 3. Screenshot your Wispr Insights card separately for the form field.
+
+
+## Update, 23 October 2026
+
+- **The clip on the hosted Home page is not your submission video.** `web/media/demo.mp4` (65 s) is a recording of
+  the live page driven by *typed* sentences, labelled as such in a badge on screen and a caption under it. It is
+  regenerated with `node scripts/record_demo.js` whenever the page changes. The 2-minute challenge video still has
+  to be your voice, your Wispr Flow and your screen.
+- **New beats worth adding to your own take** (all real in the build): hold your Wispr key and talk into the dock's
+  capture field on the hosted page ("go to tools", "use the calculator tool", "set expression to 12 times 3");
+  say "zoom in", "scroll to the receipts section" and "what can I say" (the page pilot); on the desktop app say
+  "ask Codex to ..." and show a read-only council or a team-up plan.
+- **Numbers to put on the closing card** (check them on the day): Python 334 tests, Node 177 tests, release 1.7.1
+  or later. The `57 tests` and `18 node` in the table above are from an old build.
+- Do not claim Wispr audio in the recorded clip, and do not reuse it as proof of Wispr use.

@@ -294,3 +294,13 @@ Notion or Switch.
 | Debate and judge panel, both runtimes | scripted agents (with banners and echoed prompts, like real CLIs) and the mock agent CLI: anonymous shuffled ideas, no self-votes, tie-breaking, silent or invalid agents, withdrawals, cancellation, blind prompts, median and caps, partial scorecards rejected, secrets never shown; Python and Node produce identical parses, tallies, audits, aggregates and reports (parity tests) |
 | Real UI | a three-agent debate plan (Claude Code, Codex, Antigravity) was created: `read` risk, not auto-run, three commands listed; it was **not run** |
 | Not verified | any council with real models: whether real CLIs return parseable JSON reliably, how long four rounds take, and how useful the votes and scores are |
+
+## The page pilot and the on-site demo clip (23 October 2026)
+
+| Check | Result |
+| --- | --- |
+| Pilot language | 8 Node test groups: zoom, volume, screenshot, movement, strict palette matching and its ambiguity rules, refused approval/deletion labels, sentences that merely contain command words, odd input |
+| Desktop abilities | volume media keys and window screenshots in both runtimes with injected fakes (no real key pressed), Python-to-Node parity; two input-validation bugs found and fixed (an array as the volume action) |
+| Real page | zoom in/set/reset changed the page zoom; mute and "set volume to 40 percent" changed the voice volume; "scroll to the receipts section" scrolled; "zoom to 130 percent" typed into the capture field took effect; a sentence beginning "zoom in on ..." and "approve the plan on screen" were not treated as pilot commands |
+| Not verified | real tab capture and real full screen (the automation pane blocks both and the pilot reported that), a real Windows system-volume change, the Electron window screenshot against a real window |
+| On-site clip | `web/media/demo.mp4`, 1280x720 H.264, 65 s, 2.6 MB, recorded from the real page in headless Edge with typed sentences standing in for dictation, a badge saying so on every frame, and real mouse clicks for the two approvals. The poster is a frame from the clip. It is **not** a recording of Wispr Flow |
