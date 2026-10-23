@@ -864,6 +864,8 @@
     denied: 'declined',
   };
   var accountTimer = null;
+  // Local state only (the browser comes back to this app's own address), so polling is cheap.
+  var SIGN_IN_POLL_SECONDS = 1.5;
 
   // The runtime answers connector failures in plain sentences; show those as they are.
   function accountError(err) {
@@ -874,7 +876,7 @@
     if (S.mode !== 'desktop') return;
     get('/api/wispr/account').then(function (info) {
       paintAccount(info);
-      if (info.state === 'pending') schedulePoll(info.interval);
+      if (info.state === 'pending') schedulePoll(SIGN_IN_POLL_SECONDS);
     }).catch(function () { $('accountStrip').hidden = true; });
   }
 
@@ -886,14 +888,13 @@
     badge.setAttribute('data-state', state);
     $('accountDetail').textContent = info.detail ||
       'Sign in with a short code on Wispr’s own page to read your Scratchpad notes. FlowMesh never sees your password.';
-    var pending = state === 'pending' && info.user_code;
+    var pending = state === 'pending' && info.authorization_url;
     $('deviceCode').hidden = !pending;
     if (pending) {
-      $('deviceCodeValue').textContent = info.user_code;
+      $('deviceCodeValue').textContent = '';
       // Only an https link is ever offered; the runtime has already enforced it.
       var link = $('deviceCodeLink');
-      var target = info.verification_uri_complete || info.verification_uri || '';
-      if (/^https:\/\//i.test(target)) link.setAttribute('href', target);
+      if (/^https:\/\//i.test(info.authorization_url)) link.setAttribute('href', info.authorization_url);
     }
     $('accountConnect').hidden = state === 'connected' || Boolean(pending);
     $('accountConnect').textContent = state === 'disconnected' ? 'Connect Wispr account' : 'Try again';
@@ -903,10 +904,29 @@
   }
 
   function connectAccount() {
+    var button = $('accountConnect');
+    var label = button.textContent;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.textContent = 'Contacting Wispr…';
+    $('accountDetail').textContent = 'Contacting Wispr… this takes a few seconds the first time.';
+    function done() {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      button.textContent = label;
+    }
     api('/api/wispr/account/connect', {}).then(function (info) {
+      done();
       paintAccount(info);
-      schedulePoll(info.interval);
-    }).catch(function (err) { toast(accountError(err)); });
+      // The click is the user gesture that lets this open Wispr's page; if a browser blocks
+      // it, the "Continue on Wispr" link above is the fallback.
+      try { window.open(info.authorization_url, '_blank', 'noopener'); } catch (err) { /* link is shown */ }
+      schedulePoll(SIGN_IN_POLL_SECONDS);
+    }).catch(function (err) {
+      done();
+      loadAccount();
+      toast(accountError(err));
+    });
   }
 
   function schedulePoll(seconds) {
@@ -917,8 +937,9 @@
   function pollAccount() {
     api('/api/wispr/account/poll', {}).then(function (info) {
       paintAccount(info);
-      if (info.state === 'pending') schedulePoll(info.interval);
+      if (info.state === 'pending') schedulePoll(SIGN_IN_POLL_SECONDS);
       else if (info.state === 'connected') toast('Wispr account connected. Browse your Scratchpad notes.');
+      else if (info.state === 'denied' || info.state === 'expired') toast(info.detail);
     }).catch(function (err) {
       paintAccount({ state: 'disconnected' });
       toast(accountError(err));

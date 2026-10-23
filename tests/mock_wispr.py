@@ -1,17 +1,22 @@
 """A loopback stand-in for Wispr's OAuth server and MCP endpoint.
 
-It speaks just enough of the real protocol (RFC 8414 discovery, RFC 7591
-registration, RFC 8628 device grant, refresh rotation, MCP over streamable HTTP) for
-the connector tests. It proves FlowMesh follows the protocol; it does not prove what
-Wispr's live tools return. That part is stated, not implied, in the docs.
+It speaks just enough of the real protocol (RFC 8414 discovery, RFC 7591 registration,
+authorization code + PKCE with an exact redirect URI, refresh rotation, MCP over
+streamable HTTP) for the connector tests. It proves FlowMesh follows the protocol; it
+does not prove what Wispr's live tools return. That part is stated, not implied, in the
+docs.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode, urlparse
+
+CODE = "auth-code-1"
 
 NOTES = {
     "n-1": {"title": "Sprint retro\x07 ideas", "modified_at": "2026-10-21T10:00:00Z",
@@ -21,16 +26,17 @@ NOTES = {
 
 
 class MockWispr:
-    def __init__(self, *, pending_polls: int = 1, sse: bool = False, tools=None, evil_token_host: bool = False):
-        self.pending_polls = pending_polls
-        self.sse = sse
+    def __init__(self, *, sse: bool = False, tools=None, evil_token_host: bool = False, deny: bool = False,
+                 reject_code: bool = False):
+        self.sse, self.deny, self.reject_code = sse, deny, reject_code
         self.tools = tools if tools is not None else ["search_scratchpad_notes", "get_scratchpad_note"]
         self.evil_token_host = evil_token_host
         self.log: list[tuple[str, str, dict]] = []
         self.revoked = False
         self.access, self.refresh, self.refresh_count = "at-1", "rt-1", 1
         self.registrations = 0
-        self._polls = 0
+        self.clients: dict[str, list[str]] = {}
+        self.issued: dict[str, dict] = {}
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -48,19 +54,30 @@ class MockWispr:
                 self.wfile.write(body)
 
             def do_GET(self):
-                owner.log.append(("GET", self.path, {}))
+                parsed = urlparse(self.path)
+                owner.log.append(("GET", parsed.path, {k: v[0] for k, v in parse_qs(parsed.query).items()}))
                 base = owner.base
-                if self.path == "/.well-known/oauth-protected-resource":
+                if parsed.path == "/.well-known/oauth-protected-resource":
                     return self.reply(200, {"resource": owner.resource, "authorization_servers": [base]})
-                if self.path == "/.well-known/oauth-authorization-server":
+                if parsed.path == "/.well-known/oauth-authorization-server":
                     token = "https://evil.example/oauth2/token" if owner.evil_token_host else base + "/oauth2/token"
                     return self.reply(200, {
                         "issuer": base, "token_endpoint": token,
                         "registration_endpoint": base + "/oauth2/register",
-                        "device_authorization_endpoint": base + "/oauth2/device_authorization",
-                        "grant_types_supported": ["authorization_code", "refresh_token",
-                                                  "urn:ietf:params:oauth:grant-type:device_code"],
+                        "authorization_endpoint": base + "/oauth2/authorize",
+                        "code_challenge_methods_supported": ["S256"],
+                        "grant_types_supported": ["authorization_code", "refresh_token"],
                     })
+                if parsed.path == "/oauth2/authorize":
+                    q = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                    redirect = q.get("redirect_uri", "")
+                    if redirect not in owner.clients.get(q.get("client_id", ""), []):
+                        return self.reply(400, {"error": "invalid_redirect_uri"})
+                    if q.get("code_challenge_method") != "S256" or not q.get("code_challenge"):
+                        return self.reply(400, {"error": "invalid_request"})
+                    owner.issued[CODE] = q
+                    params = {"error": "access_denied", "state": q["state"]} if owner.deny else {"code": CODE, "state": q["state"]}
+                    return self.reply(302, headers={"Location": redirect + "?" + urlencode(params)}, raw=b"")
                 self.reply(404)
 
             def do_POST(self):
@@ -74,14 +91,9 @@ class MockWispr:
                 owner.log.append(("POST", self.path, data))
                 if self.path == "/oauth2/register":
                     owner.registrations += 1
-                    return self.reply(201, {"client_id": "cid-1"})
-                if self.path == "/oauth2/device_authorization":
-                    return self.reply(200, {
-                        "device_code": "dev-secret", "user_code": "ABCD-1234",
-                        "verification_uri": owner.base + "/activate",
-                        "verification_uri_complete": owner.base + "/activate?c=ABCD-1234",
-                        "expires_in": 600, "interval": 5,
-                    })
+                    client_id = f"cid-{owner.registrations}"
+                    owner.clients[client_id] = list(data.get("redirect_uris") or [])
+                    return self.reply(201, {"client_id": client_id})
                 if self.path == "/oauth2/token":
                     return self.token(data)
                 if self.path == "/connect/mcp":
@@ -95,11 +107,14 @@ class MockWispr:
                     owner.refresh_count += 1
                     owner.access, owner.refresh = f"at-{owner.refresh_count}", f"rt-{owner.refresh_count}"
                     return self.reply(200, {"access_token": owner.access, "refresh_token": owner.refresh, "expires_in": 3600})
-                if owner._polls < owner.pending_polls:
-                    owner._polls += 1
-                    return self.reply(400, {"error": "authorization_pending"})
-                if data.get("device_code") != "dev-secret":
-                    return self.reply(400, {"error": "access_denied"})
+                issued = owner.issued.get(data.get("code", ""))
+                if owner.reject_code or data.get("grant_type") != "authorization_code" or not issued:
+                    return self.reply(400, {"error": "invalid_grant"})
+                challenge = base64.urlsafe_b64encode(hashlib.sha256(data.get("code_verifier", "").encode()).digest()).rstrip(b"=").decode()
+                if (challenge != issued["code_challenge"] or data.get("redirect_uri") != issued["redirect_uri"]
+                        or data.get("client_id") != issued["client_id"]):
+                    return self.reply(400, {"error": "invalid_grant"})
+                del owner.issued[data["code"]]  # a code works once
                 return self.reply(200, {"access_token": owner.access, "refresh_token": owner.refresh, "expires_in": 3600})
 
             def mcp(self, data):
