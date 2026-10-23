@@ -8,9 +8,9 @@ Built for **No Hands: The Wispr Challenge** (WeMakeDevs × Wispr Flow), Builders
 
 - **Try it in the browser — no install:** https://flowmesh-nohands.netlify.app/
 - **Desktop app — download and run:** https://github.com/HamzaShaikh-source/flowmesh/releases
-  - `FlowMesh-1.3.0-win-x64.exe` — Electron app for **Windows**, a single portable executable (no install; 99 MiB)
-  - `FlowMesh-1.3.0-mac-arm64.dmg` — Electron app for **Apple-silicon macOS**
-  - `FlowMesh-1.3.0-linux-x86_64.AppImage` — Electron app for **Linux x64** (`chmod +x`, then run)
+  - `FlowMesh-1.4.0-win-x64.exe` — Electron app for **Windows**, a single portable executable (no install; 99 MiB)
+  - `FlowMesh-1.4.0-mac-arm64.dmg` — Electron app for **Apple-silicon macOS**
+  - `FlowMesh-1.4.0-linux-x86_64.AppImage` — Electron app for **Linux x64** (`chmod +x`, then run)
   - `FlowMesh-Windows.zip` — the smaller Windows-only Python build (13 MiB, no Node)
 - **Source:** this repository. Stdlib-only runtime, no build step for the UI.
 
@@ -93,7 +93,7 @@ Nothing is shared between the browser page and the desktop runtimes except the p
 
 **Electron app (Windows, macOS, Linux)**
 
-1. Download the artifact for your OS from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases): `FlowMesh-1.3.0-win-x64.exe` (portable — double-click it), `FlowMesh-1.3.0-mac-arm64.dmg` (Apple silicon), or `FlowMesh-1.3.0-linux-x86_64.AppImage`.
+1. Download the artifact for your OS from [releases](https://github.com/HamzaShaikh-source/flowmesh/releases): `FlowMesh-1.4.0-win-x64.exe` (portable — double-click it), `FlowMesh-1.4.0-mac-arm64.dmg` (Apple silicon), or `FlowMesh-1.4.0-linux-x86_64.AppImage`.
 2. Run it. No installer, no admin, no Node install required.
 3. Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper will warn: *More info → Run anyway* on Windows, *right-click → Open* on macOS.
 4. The app opens its own window on `127.0.0.1` with a per-launch session token in the URL.
