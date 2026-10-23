@@ -25,7 +25,7 @@ Things the browser edition will refuse, on purpose: `desktop_only` for launching
 
 ## Path B — the desktop runtimes (real OS actions)
 
-**Electron app — Windows, macOS, Linux.** Download the artifact for your OS from the [releases page](https://github.com/HamzaShaikh-source/flowmesh/releases) and run it: `FlowMesh-1.3.0-win-x64.exe` (portable: double-click, no install), `FlowMesh-1.3.0-mac-arm64.dmg` (Apple silicon), or `FlowMesh-1.3.0-linux-x86_64.AppImage` (`chmod +x`, then run). The builds are unsigned, so Windows SmartScreen (*More info → Run anyway*) and macOS Gatekeeper (*right-click → Open*) will warn.
+**Electron app — Windows, macOS, Linux.** Download the artifact for your OS from the [releases page](https://github.com/HamzaShaikh-source/flowmesh/releases) and run it: `FlowMesh-1.4.0-win-x64.exe` (portable: double-click, no install), `FlowMesh-1.4.0-mac-arm64.dmg` (Apple silicon), or `FlowMesh-1.4.0-linux-x86_64.AppImage` (`chmod +x`, then run). The builds are unsigned, so Windows SmartScreen (*More info → Run anyway*) and macOS Gatekeeper (*right-click → Open*) will warn.
 
 **Python app — Windows.** Download `FlowMesh-Windows.zip`, unzip, run `FlowMesh.exe`.
 
